@@ -1,0 +1,4 @@
+PyQt6>=6.4.0
+pefile>=2023.2.7
+Pillow>=9.0.0
+pyinstaller>=6.0.0
