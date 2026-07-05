@@ -5,6 +5,8 @@ Beer (**B**e **E**mulator mor**E** **R**uined) 是一个基于Qt6，使用Proton
 
 创造此程序的初衷是为了解决Wine在各Linux发行版获取困难和管理困难的问题。
 
+此应用使用TRAE AI生成，请不放心使用。
+
 干杯！🍺
 ### 使用
 #### 启动此应用
@@ -17,6 +19,8 @@ Beer (**B**e **E**mulator mor**E** **R**uined) 是一个基于Qt6，使用Proton
 *提醒：若使用源代码方式启动，配置文件将会保存在同目录中；若使用可执行文件启动，配置文件将保存在~/.config/Beer中。*
 #### 安装Proton
 安装Steam，在**库**页面右侧上方的筛选中勾选工具选项，搜索Proton并选择版本安装即可。
+
+下载后，您便可以在此应用的主页看到您下载的所有版本的Proton.
 
 如果您在使用第三方版的Proton（比如Proton-GE），可在应用内的 设置-常规设置 中勾选“自定义Proton目录”，随后在您的文件管理器中选择Proton的目录。当“自定义Proton目录”启用时，主页的选择Proton版本将会禁用。
 #### 启动Windows应用
