@@ -1,7 +1,7 @@
 [zh-hans](https://github.com/Xiaolang47y/Beer/blob/main/README.md) | en
 
 # Beer
-Beer (**B**e **E**mulator mor**E** **R**uined) is a Qt6-based Wine GUI frontend that uses Proton to run Windows programs.
+Beer (**B**e **E**mulator mor**E** **R**uined) is a Qt6-based GUI frontend that uses Proton to run Windows programs.
 
 This program borrows the Proton translation layer downloaded from Steam to run Windows programs, and provides some convenient tools for launching and management.
 
