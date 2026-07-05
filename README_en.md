@@ -32,8 +32,8 @@ Click Save Configuration to save your application configuration in the Saved App
 
 Click Generate Desktop File to generate a .desktop file in the desktop folder, allowing you to launch it without using Beer.
 ### Gallery
-<img width="900" height="628" alt="Image" src="https://github.com/user-attachments/assets/832c1359-d3eb-4333-b010-8336dfeb881f" />
-<img width="900" height="628" alt="Image" src="https://github.com/user-attachments/assets/cd77bee0-1abc-48dd-a387-abbc418f2fbf" />
-<img width="900" height="628" alt="Image" src="https://github.com/user-attachments/assets/99b38b25-c57e-4d1d-af38-342d8973c45e" />
-<img width="900" height="628" alt="Image" src="https://github.com/user-attachments/assets/efaa61c4-103f-4a00-9478-eed3930c7be6" />
-<img width="900" height="628" alt="Image" src="https://github.com/user-attachments/assets/5d1f7752-0c33-4b13-a52d-aced5c7da95d" />
+<img width="900" height="628" alt="图片" src="https://github.com/user-attachments/assets/ad14232b-3763-4d42-a763-29b2c853406d" />
+<img width="900" height="628" alt="图片" src="https://github.com/user-attachments/assets/0d5d8a01-1fd8-49b5-913a-e796e1e20811" />
+<img width="900" height="628" alt="图片" src="https://github.com/user-attachments/assets/02628007-afba-4082-8521-18028f058853" />
+<img width="900" height="628" alt="图片" src="https://github.com/user-attachments/assets/4ab608bd-5cc3-4262-83a5-7f6b58777dcc" />
+<img width="900" height="628" alt="图片" src="https://github.com/user-attachments/assets/bb8dd7a4-9cf4-4152-aa68-a7967645a570" />
