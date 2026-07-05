@@ -1,3 +1,4 @@
+zh-hans | [en](https://github.com/Xiaolang47y/Beer/blob/main/README_en.md)
 # Beer
 Beer (**B**e **E**mulator mor**E** **R**uined) 是一个基于Qt6，使用Proton来运行Windows程序的Wine GUI前端。
 
