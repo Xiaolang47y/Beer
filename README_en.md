@@ -7,7 +7,7 @@ This program borrows the Proton translation layer downloaded from Steam to run W
 
 The original intention behind creating this program was to solve the difficulties of obtaining and managing Wine across various Linux distributions.
 
-This application was generated using TRAE AI; please use it with caution.
+This application was generated using TRAE AI.
 
 Cheers! 🍺
 ### Usage
