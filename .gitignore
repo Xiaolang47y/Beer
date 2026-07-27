@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+config.json
+apps.json
+dist/
+build/
+*.spec
+*.tar.gz
+*.egg-info/
+.eggs/
+# Generated icon cache (created at runtime)
+icons/
