@@ -157,3 +157,31 @@ class ConfigManager:
         except Exception as e:
             print(f"Error importing apps: {e}")
             return False
+
+    def clean_unused_icons(self):
+        """Delete icon files that are no longer referenced by saved apps.
+
+        Returns the number of removed files.
+        """
+        icons_dir = self.get_icons_dir()
+        if not os.path.isdir(icons_dir):
+            return 0
+
+        used_icons = set()
+        for app in self.apps:
+            icon_path = app.get('icon_path')
+            if icon_path:
+                used_icons.add(os.path.abspath(icon_path))
+
+        removed = 0
+        for filename in os.listdir(icons_dir):
+            filepath = os.path.join(icons_dir, filename)
+            if os.path.isfile(filepath):
+                if os.path.abspath(filepath) not in used_icons:
+                    try:
+                        os.remove(filepath)
+                        removed += 1
+                    except Exception as e:
+                        print(f"Error removing icon {filepath}: {e}")
+
+        return removed

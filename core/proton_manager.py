@@ -93,7 +93,11 @@ class ProtonManager(QObject):
         return os.path.exists(proton_script)
 
     def get_steam_compat_paths(self, proton_path):
-        """Get Steam compatibility paths for a Proton installation"""
+        """Get Steam compatibility paths for a Proton installation.
+
+        Proton requires STEAM_COMPAT_DATA_PATH to exist before it creates the
+        prefix lock file, so the directory is created automatically.
+        """
         steam_paths = [
             os.path.expanduser('~/.steam/steam'),
             os.path.expanduser('~/.local/share/Steam')
@@ -101,9 +105,15 @@ class ProtonManager(QObject):
 
         for steam_path in steam_paths:
             if os.path.exists(steam_path):
+                compat_data = os.path.expanduser(
+                    '~/.steam/steam/steamapps/compatdata/default'
+                )
+                os.makedirs(compat_data, exist_ok=True)
                 return {
                     'STEAM_COMPAT_CLIENT_INSTALL_PATH': steam_path,
-                    'STEAM_COMPAT_DATA_PATH': os.path.expanduser('~/.steam/steam/steamapps/compatdata/default')
+                    'STEAM_COMPAT_DATA_PATH': compat_data,
+                    'SteamAppId': '0',
+                    'SteamGameId': '0'
                 }
 
         return None

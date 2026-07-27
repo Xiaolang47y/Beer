@@ -73,6 +73,10 @@ TRANSLATIONS = {
         'language': 'Language',
         'language_desc': 'Application language',
         'language_system': 'Follow System',
+        'clean_icons': 'Clean Unused Icons',
+        'clean_icons_desc': 'Delete icon files that are no longer referenced by saved applications',
+        'clean_icons_btn': 'Clean Icons',
+        'clean_icons_done': 'Cleaned {count} unused icon file(s).',
         
         # Advanced settings
         'environment_variables': 'Environment Variables',
@@ -216,6 +220,10 @@ TRANSLATIONS = {
         'language': '语言',
         'language_desc': '应用程序语言',
         'language_system': '跟随系统',
+        'clean_icons': '清理无用图标',
+        'clean_icons_desc': '删除不再被已保存应用引用的图标文件',
+        'clean_icons_btn': '清理图标',
+        'clean_icons_done': '已清理 {count} 个无用图标文件。',
         
         # Advanced settings
         'environment_variables': '环境变量',

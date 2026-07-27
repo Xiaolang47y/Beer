@@ -221,6 +221,21 @@ class SettingsPage(QWidget):
         
         layout.addWidget(self.language_group)
         
+        # Clean unused icons
+        self.clean_icons_group = QGroupBox(self.translator('clean_icons'))
+        clean_icons_layout = QVBoxLayout(self.clean_icons_group)
+        
+        self.clean_icons_desc = QLabel(self.translator('clean_icons_desc'))
+        self.clean_icons_desc.setWordWrap(True)
+        self.clean_icons_desc.setStyleSheet("color: gray; font-size: 11px;")
+        clean_icons_layout.addWidget(self.clean_icons_desc)
+        
+        self.btn_clean_icons = QPushButton(self.translator('clean_icons_btn'))
+        self.btn_clean_icons.clicked.connect(self.on_clean_icons)
+        clean_icons_layout.addWidget(self.btn_clean_icons)
+        
+        layout.addWidget(self.clean_icons_group)
+        
         # Show log on start
         self.log_group = QGroupBox(self.translator('show_log_on_start'))
         log_layout = QVBoxLayout(self.log_group)
@@ -410,6 +425,15 @@ class SettingsPage(QWidget):
         """Handle show log change - save immediately"""
         self.config.set('show_log_on_start', checked)
 
+    def on_clean_icons(self):
+        """Remove icon files that are no longer referenced by saved apps."""
+        count = self.config.clean_unused_icons()
+        QMessageBox.information(
+            self,
+            self.translator('info'),
+            self.translator('clean_icons_done').format(count=count)
+        )
+
     def on_default_page_changed(self, index):
         """Handle default page change - save immediately"""
         if index >= 0:
@@ -497,6 +521,7 @@ class SettingsPage(QWidget):
         self.default_page_group.setTitle(self.translator('default_page'))
         self.theme_group.setTitle(self.translator('theme'))
         self.language_group.setTitle(self.translator('language'))
+        self.clean_icons_group.setTitle(self.translator('clean_icons'))
         self.log_group.setTitle(self.translator('show_log_on_start'))
         self.env_group.setTitle(self.translator('environment_variables'))
 
@@ -506,6 +531,7 @@ class SettingsPage(QWidget):
         self.default_page_desc.setText(self.translator('default_page_desc'))
         self.theme_desc.setText(self.translator('theme_desc'))
         self.language_desc.setText(self.translator('language_desc'))
+        self.clean_icons_desc.setText(self.translator('clean_icons_desc'))
         self.log_desc.setText(self.translator('show_log_desc'))
         self.env_desc.setText(self.translator('env_vars_desc'))
 
@@ -514,6 +540,7 @@ class SettingsPage(QWidget):
         self.btn_browse_custom_proton.setText(self.translator('browse'))
         self.btn_add_env.setText(self.translator('add'))
         self.btn_remove_env.setText(self.translator('remove'))
+        self.btn_clean_icons.setText(self.translator('clean_icons_btn'))
 
         # Update combo box item texts (preserve user data)
         self._update_combo_item_text(self.combo_default_page, {
