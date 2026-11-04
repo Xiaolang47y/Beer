@@ -4,13 +4,25 @@ Saved applications page for Beer
 """
 
 import os
+import shlex
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QLineEdit, QScrollArea, QGridLayout, QFrame, QMenu,
-    QMessageBox, QFileDialog, QDialog, QDialogButtonBox, QComboBox
+    QMessageBox, QFileDialog, QDialog, QDialogButtonBox, QComboBox,
+    QProgressDialog
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QIcon, QPixmap
+from PyQt6.QtGui import QAction, QPixmap
+
+from core.app_icon import get_app_icon
+from core.desktop_generator import (
+    DesktopGenerator, sanitize_filename, get_default_icon_path,
+)
+from core.winetricks_manager import prefix_for_name
+from ui.dialogs.desktop_dialog import DesktopEntryDialog
+from ui.dialogs.winetricks_dialog import WinetricksDialog
+from ui.icon_extract_task import IconExtractTask
 
 
 class SimpleInputDialog(QDialog):
@@ -69,7 +81,7 @@ class ProtonSelectionDialog(QDialog):
         super().__init__(parent)
         self.translator = translator
         self._browse_path = ''
-        self.setWindowTitle(translator('select_proton'))
+        self.setWindowTitle(translator('select_runtime'))
         self.setMinimumWidth(360)
 
         layout = QVBoxLayout(self)
@@ -148,9 +160,11 @@ class EditableProtonLabel(QLabel):
         not_set = self.translator('not_set') if self.translator else 'Not set'
         if self._proton_path:
             name = os.path.basename(self._proton_path)
-            self.setText(f"Proton: {name}")
+            label = self.translator('runtime_short') if self.translator else 'Runtime'
+            self.setText(f"{label}: {name}")
         else:
-            self.setText(f"Proton: {not_set}")
+            label = self.translator('runtime_short') if self.translator else 'Runtime'
+            self.setText(f"{label}: {not_set}")
 
     def set_proton_path(self, path):
         self._proton_path = path
@@ -225,7 +239,10 @@ class AppCard(QFrame):
         layout.addWidget(self.name_label)
 
         # Description (editable)
-        desc_text = self.app.get('description', '') or os.path.basename(exe_path) if exe_path else ''
+        if exe_path:
+            desc_text = self.app.get('description', '') or os.path.basename(exe_path)
+        else:
+            desc_text = self.app.get('description', '') or ''
         self.desc_label = EditableLabel(desc_text, self.translator('edit_desc'))
         self.desc_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.desc_label.setStyleSheet("color: #aaaaaa; font-size: 10px;")
@@ -278,12 +295,12 @@ class AppCard(QFrame):
                         self.icon_label.setPixmap(scaled)
                         return
 
-        # Fallback
-        app_icon = QIcon.fromTheme('application-x-executable')
-        if not app_icon.isNull():
-            self.icon_label.setPixmap(app_icon.pixmap(max_size, max_size))
+        # Fallback: beer emoji icon
+        pixmap = get_app_icon().pixmap(max_size, max_size)
+        if not pixmap.isNull():
+            self.icon_label.setPixmap(pixmap)
         else:
-            self.icon_label.setText("")
+            self.icon_label.setText("🍺")
             self.icon_label.setStyleSheet("font-size: 32px; color: #ffffff;")
 
 
@@ -298,6 +315,7 @@ class SavedAppsPage(QWidget):
 
         self.apps = []
         self.filtered_apps = []
+        self._icon_tasks = []
 
         # Shared icon extractor (cached tool checks)
         from core.icon_extractor import IconExtractor
@@ -400,27 +418,28 @@ class SavedAppsPage(QWidget):
 
     def _create_app_card(self, app):
         """Create an application card"""
-        # Gather available Proton versions from the main page's ProtonManager
-        proton_versions = []
+        runtime_versions = []
         try:
             mp = self.main_window.main_page
             if mp and mp.proton_manager:
-                proton_versions = mp.proton_manager.get_proton_versions()
+                runtime_versions = mp.proton_manager.get_runtimes()
         except Exception:
             pass
 
-        card = AppCard(app, self.translator, proton_versions, self)
+        card = AppCard(app, self.translator, runtime_versions, self)
 
         # Double-click icon to launch
         card.icon_label.mouseDoubleClickEvent = lambda e, a=app: self.launch_app(a)
 
         # Name changed
-        card.name_label.text_changed.connect(lambda new_name, a=app: self._on_name_changed(a, new_name))
+        card.name_label.text_changed.connect(
+            lambda new_name, a=app, c=card: self._on_name_changed(a, new_name, c)
+        )
 
         # Description changed
         card.desc_label.text_changed.connect(lambda new_desc, a=app: self._on_desc_changed(a, new_desc))
 
-        # Proton layer changed
+        # Proton/Wine runtime changed
         card.proton_label.proton_changed.connect(lambda new_path, a=app: self._on_proton_changed(a, new_path))
 
         # Context menu
@@ -429,14 +448,42 @@ class SavedAppsPage(QWidget):
         return card
 
     def _on_proton_changed(self, app, new_path):
-        """Handle Proton layer change"""
+        """Handle Proton/Wine runtime change."""
+        from core.runtime_utils import detect_runtime
+
+        runtime = detect_runtime(new_path)
+        if runtime is None:
+            QMessageBox.warning(
+                self,
+                self.translator('warning'),
+                self.translator('runtime_invalid')
+            )
+            return
+
+        # Only remember paths that are not already found by the automatic scan.
+        main_page = getattr(self.main_window, 'main_page', None)
+        known_paths = []
+        if main_page and main_page.proton_manager:
+            known_paths = [
+                item.get('path', '') for item in main_page.proton_manager.get_runtimes()
+            ]
+        custom_paths = list(self.config.get('custom_proton_paths', []))
+        if runtime.get('path') not in known_paths and runtime.get('path') not in custom_paths:
+            custom_paths.append(runtime.get('path'))
+            self.config.set('custom_proton_paths', custom_paths)
+
         app['proton_path'] = new_path
         self.config._save_apps()
+
+        if main_page and main_page.proton_manager:
+            main_page.load_proton_versions()
+            main_page.select_runtime_path(new_path)
+
         self.main_window.log_message(
-            f"Proton layer updated for {app.get('name', '')}: {new_path}", 'info'
+            f"Runtime updated for {app.get('name', '')}: {new_path}", 'info'
         )
 
-    def _on_name_changed(self, app, new_name):
+    def _on_name_changed(self, app, new_name, card=None):
         """Handle name change"""
         old_name = app.get('name', '')
         # Check for duplicate
@@ -447,8 +494,10 @@ class SavedAppsPage(QWidget):
                     self.translator('warning'),
                     self.translator('name_exists')
                 )
-                # Revert
+                # Revert both the data and the visible label.
                 app['name'] = old_name
+                if card is not None:
+                    card.name_label.setText(old_name)
                 return
 
         app['name'] = new_name
@@ -462,11 +511,9 @@ class SavedAppsPage(QWidget):
 
     def launch_app(self, app):
         """Launch an application"""
-        from core.proton_manager import ProtonManager
-
-        proton_path = app.get('proton_path')
         exe_path = app.get('exe_path')
         working_dir = app.get('run_directory')
+        runtime_path = app.get('proton_path', '')
 
         if not exe_path or not os.path.exists(exe_path):
             QMessageBox.warning(
@@ -476,29 +523,44 @@ class SavedAppsPage(QWidget):
             )
             return
 
-        if not proton_path:
+        manager = getattr(self.main_window.main_page, 'proton_manager', None)
+        if manager is None:
             QMessageBox.warning(
                 self,
                 self.translator('error'),
-                self.translator('proton_not_found')
+                self.translator('runtime_missing')
             )
             return
 
-        # Launch
-        proton_manager = ProtonManager()
-        env_vars = self.config.get('environment_variables', {})
-        more_options = app.get('more_options', {})
-        args = more_options.get('startup_args', '').split() if more_options.get('startup_args') else None
+        runtime = manager.get_runtime_by_path(runtime_path)
+        if runtime is None:
+            runtime = manager.get_runtimes()[0] if manager.get_runtimes() else None
+        if runtime is None:
+            QMessageBox.warning(
+                self,
+                self.translator('error'),
+                self.translator('runtime_select_first')
+            )
+            return
 
-        success, result = proton_manager.launch_program(
-            proton_path, exe_path, working_dir, env_vars, args,
-            output_callback=self.main_window.log_message
+        env_vars = self.config.get('environment_variables', {})
+        more_options = app.get('more_options', {}) or {}
+        args_text = more_options.get('startup_args', '') or ''
+        args = shlex.split(args_text) if args_text.strip() else None
+        wine_options = more_options.get('wine_options', {}) or {}
+
+        if self.config.get('show_log_on_start', False):
+            self.main_window.show_log()
+
+        success, result = manager.launch_program(
+            runtime.get('path', ''), exe_path, working_dir, env_vars, args,
+            output_callback=self.main_window.log_message,
+            wine_options=wine_options,
+            architecture=app.get('architecture', 'auto'),
         )
 
         if success:
             self.main_window.log_message(f"Launched: {app.get('name')}", 'success')
-            if self.config.get('show_log_on_start', False):
-                self.main_window.show_log()
         else:
             self.main_window.log_message(f"Failed to launch: {result}", 'error')
 
@@ -528,6 +590,10 @@ class SavedAppsPage(QWidget):
         shortcut_action.triggered.connect(lambda: self.add_desktop_shortcut(app))
         menu.addAction(shortcut_action)
 
+        winetricks_action = QAction(self.translator('open_winetricks'), self)
+        winetricks_action.triggered.connect(lambda: self.open_winetricks(app))
+        menu.addAction(winetricks_action)
+
         menu.addSeparator()
 
         edit_action = QAction(self.translator('edit'), self)
@@ -540,61 +606,156 @@ class SavedAppsPage(QWidget):
 
         menu.exec(card.mapToGlobal(pos))
 
-    def add_desktop_shortcut(self, app):
-        """Add a desktop shortcut for the app"""
-        from core.desktop_generator import DesktopGenerator
-        from core.icon_extractor import IconExtractor
+    def open_winetricks(self, app):
+        """Open Winetricks for a saved application."""
+        manager = getattr(self.main_window.main_page, 'proton_manager', None)
+        if manager is None or not manager.get_runtimes():
+            QMessageBox.warning(
+                self, self.translator('warning'),
+                self.translator('runtime_select_first')
+            )
+            return
 
+        prefix = prefix_for_name(self.config, app.get('name', 'default'))
+        dialog = WinetricksDialog(
+            self.translator,
+            runtimes=manager.get_runtimes(),
+            config=self.config,
+            parent=self,
+            app_name=app.get('name', ''),
+            runtime_path=app.get('proton_path', ''),
+            prefix=prefix,
+        )
+        dialog.exec()
+
+    def add_desktop_shortcut(self, app):
+        """Add a desktop shortcut for the app."""
         name = app.get('name', '')
         exe_path = app.get('exe_path', '')
-        proton_path = app.get('proton_path', '')
-        working_dir = app.get('run_directory', '')
-        description = app.get('description', '')
 
         if not name or not exe_path:
             QMessageBox.warning(
                 self,
                 self.translator('warning'),
-                "Missing name or executable path"
+                self.translator('desktop_name_exe_required')
             )
             return
 
-        # Extract icon (persistent storage)
         icon_path = app.get('icon_path', '')
-        if not icon_path or not os.path.exists(icon_path):
-            extractor = self._icon_extractor
-            if extractor.is_tool_available():
-                icon_path, _ = extractor.extract_icon(exe_path)
+        if icon_path and os.path.exists(icon_path):
+            self._open_shortcut_dialog(app, icon_path)
+            return
 
+        if self._icon_extractor.is_tool_available():
+            self._extract_shortcut_icon_async(app)
+        else:
+            self._open_shortcut_dialog(app, get_default_icon_path())
+
+    def _extract_shortcut_icon_async(self, app):
+        """Extract the icon in the background before opening the dialog."""
+        progress = QProgressDialog(
+            self.translator('extracting_icon'), None, 0, 0, self
+        )
+        progress.setWindowTitle(self.translator('please_wait'))
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setCancelButton(None)
+        progress.setMinimumDuration(0)
+        progress.setAutoClose(False)
+        progress.setAutoReset(False)
+        progress.setValue(0)
+        progress.show()
+
+        task = IconExtractTask(
+            self._icon_extractor, app.get('exe_path', ''), self
+        )
+        self._icon_tasks.append(task)
+
+        def done(icon_path, error):
+            progress.close()
+            progress.deleteLater()
+            if task in self._icon_tasks:
+                self._icon_tasks.remove(task)
+            task.deleteLater()
+            if error:
+                self.main_window.log_message(
+                    f"{self.translator('icon_extraction_failed')}: {error}",
+                    'warning'
+                )
+            self._open_shortcut_dialog(
+                app, icon_path or get_default_icon_path()
+            )
+
+        task.extracted.connect(done)
+        task.start()
+
+    def _open_shortcut_dialog(self, app, icon_path=''):
+        name = app.get('name', '')
+        exe_path = app.get('exe_path', '')
+        working_dir = app.get('run_directory', '')
+        description = app.get('description', '')
+
+        more_options = app.get('more_options', {}) or {}
+        args_text = more_options.get('startup_args', '') or ''
+        manager = getattr(self.main_window.main_page, 'proton_manager', None)
+        runtimes = manager.get_runtimes() if manager else []
+
+        options = {
+            'name': name,
+            'comment': description or name,
+            'exe_path': exe_path,
+            'working_dir': working_dir,
+            'runtime_path': app.get('proton_path', ''),
+            'icon_path': icon_path,
+            'args': args_text,
+            'categories': 'Game;',
+            'terminal': False,
+            'target': 'desktop',
+            'filename': sanitize_filename(name) + '.desktop',
+        }
+
+        dialog = DesktopEntryDialog(
+            options,
+            self.translator,
+            runtimes=runtimes,
+            icon_extractor=self._icon_extractor,
+            parent=self,
+        )
+        dialog.set_runtime_context(
+            env_vars=self.config.get('environment_variables', {}),
+            wine_options=more_options.get('wine_options', {}) or {},
+        )
+        if not dialog.exec():
+            return
+
+        desktop_options = dialog.get_options()
         generator = DesktopGenerator()
-        env_vars = self.config.get('environment_variables', {})
-        more_options = app.get('more_options', {})
-        args = more_options.get('startup_args', '').split() if more_options.get('startup_args') else None
-
         success, result = generator.generate_desktop_file(
-            name=name,
-            exe_path=exe_path,
-            icon_path=icon_path,
-            working_dir=working_dir,
-            proton_path=proton_path,
-            env_vars=env_vars,
-            args=args,
-            comment=description
+            **desktop_options,
+            env_vars=self.config.get('environment_variables', {}),
+            wine_options=more_options.get('wine_options', {}) or {},
+            translator=self.translator,
         )
 
         if success:
-            self.main_window.log_message(f"Desktop shortcut created: {result}", 'success')
+            app['desktop_options'] = desktop_options
+            self.config._save_apps()
+            self.main_window.log_message(
+                f"{self.translator('desktop_file_generated')}: {result}",
+                'success'
+            )
             QMessageBox.information(
                 self,
                 self.translator('success'),
-                self.translator('desktop_file_generated')
+                f"{self.translator('desktop_file_generated')}\n{result}"
             )
         else:
-            self.main_window.log_message(f"Failed to create shortcut: {result}", 'error')
+            self.main_window.log_message(
+                f"{self.translator('desktop_generation_failed')}: {result}", 'error'
+            )
             QMessageBox.warning(
                 self,
                 self.translator('error'),
-                f"Failed: {result}"
+                f"{self.translator('desktop_generation_failed')}\n{result}"
             )
 
     def edit_app(self, app):
@@ -607,11 +768,10 @@ class SavedAppsPage(QWidget):
         main_page.program_path.setText(app.get('exe_path', ''))
         main_page.run_directory.setText(app.get('run_directory', ''))
 
-        # Set Proton
-        proton_path = app.get('proton_path')
-        index = main_page.proton_combo.findData(proton_path)
-        if index >= 0:
-            main_page.proton_combo.setCurrentIndex(index)
+        # Set runtime in the main page runtime table
+        proton_path = app.get('proton_path', '')
+        if proton_path:
+            main_page.select_runtime_path(proton_path)
 
         # Set architecture
         arch = app.get('architecture', 'auto')

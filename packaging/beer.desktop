@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Beer
+GenericName=Windows Game Launcher
+Comment=Run Windows games and programs with Proton or Wine
+Exec=Beer
+Icon=beer
+Terminal=false
+Categories=Game;Utility;
+Keywords=Proton;Wine;Steam;Windows;Game;
+StartupNotify=true

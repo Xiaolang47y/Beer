@@ -6,33 +6,35 @@ Configuration manager for Beer
 import json
 import os
 import sys
-from pathlib import Path
+
+from core.runtime_utils import default_proton_search_paths, expand_path
 
 
 class ConfigManager:
     """Manages application configuration"""
-    
+
     DEFAULT_CONFIG = {
         'language': 'system',
         'theme': 'system',
         'default_page': 'main',
-        'custom_proton_enabled': False,
-        'custom_proton_path': '',
-        'tool_directory': '',
-        'proton_search_paths': [
-            os.path.expanduser('~/.steam/steam/steamapps/common/'),
-            os.path.expanduser('~/.local/share/Steam/steamapps/common/')
-        ],
+        'proton_search_paths': default_proton_search_paths(),
+        'wine_search_paths': [],
+        'custom_proton_paths': [],
         'environment_variables': {},
+        'show_log_on_start': False,
+        'log_auto_scroll': True,
+        'wine_prefix_dir': os.path.expanduser('~/.local/share/Beer/prefixes'),
+        'winetricks_path': '',
+        'winetricks_verbs_cache': [],
     }
-    
+
     def __init__(self):
         self.config_dir = self._get_config_dir()
         self.config_file = os.path.join(self.config_dir, 'config.json')
         self.apps_file = os.path.join(self.config_dir, 'apps.json')
         self.config = self._load_config()
         self.apps = self._load_apps()
-    
+
     def _get_config_dir(self):
         """Get configuration directory"""
         # When packaged as executable, use ~/.config/Beer/ to keep
@@ -44,22 +46,44 @@ class ConfigManager:
             config_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         os.makedirs(config_dir, exist_ok=True)
         return config_dir
-    
+
     def _load_config(self):
-        """Load configuration from file"""
+        """Load configuration from file and migrate older formats."""
         if os.path.exists(self.config_file):
             try:
                 with open(self.config_file, 'r', encoding='utf-8') as f:
                     config = json.load(f)
-                    # Merge with defaults
-                    merged = self.DEFAULT_CONFIG.copy()
-                    merged.update(config)
-                    return merged
+                merged = dict(self.DEFAULT_CONFIG)
+                merged.update(config)
+                self._migrate_config(merged)
+                return merged
             except Exception as e:
                 print(f"Error loading config: {e}")
-                return self.DEFAULT_CONFIG.copy()
-        return self.DEFAULT_CONFIG.copy()
-    
+                return dict(self.DEFAULT_CONFIG)
+        return dict(self.DEFAULT_CONFIG)
+
+    @staticmethod
+    def _migrate_config(config):
+        """Migrate settings from older Beer versions in-place."""
+        # V1.1 and older used a single "custom Proton path".
+        old_enabled = config.pop('custom_proton_enabled', False)
+        old_path = config.pop('custom_proton_path', '')
+        custom_paths = list(config.get('custom_proton_paths') or [])
+        if old_enabled and old_path and old_path not in custom_paths:
+            custom_paths.append(old_path)
+        config['custom_proton_paths'] = [p for p in custom_paths if p]
+
+        # Remove obsolete keys that are no longer used.
+        config.pop('tool_directory', None)
+
+        if not config.get('proton_search_paths'):
+            config['proton_search_paths'] = default_proton_search_paths()
+
+        config.setdefault('log_auto_scroll', True)
+        config.setdefault('wine_prefix_dir', os.path.expanduser('~/.local/share/Beer/prefixes'))
+        config.setdefault('winetricks_path', '')
+        config.setdefault('winetricks_verbs_cache', [])
+
     def _save_config(self):
         """Save configuration to file"""
         try:
@@ -70,7 +94,7 @@ class ConfigManager:
         except Exception as e:
             print(f"Error saving config: {e}")
             return False
-    
+
     def _load_apps(self):
         """Load saved applications"""
         if os.path.exists(self.apps_file):
@@ -81,7 +105,7 @@ class ConfigManager:
                 print(f"Error loading apps: {e}")
                 return []
         return []
-    
+
     def _save_apps(self):
         """Save applications to file"""
         try:
@@ -92,7 +116,7 @@ class ConfigManager:
         except Exception as e:
             print(f"Error saving apps: {e}")
             return False
-    
+
     def get(self, key, default=None):
         """Get a configuration value"""
         return self.config.get(key, default)
@@ -102,39 +126,48 @@ class ConfigManager:
         icons_dir = os.path.join(self.config_dir, 'icons')
         os.makedirs(icons_dir, exist_ok=True)
         return icons_dir
-    
+
+    def get_wine_prefix_dir(self):
+        """Return the configured Wine prefix directory (expanded)."""
+        return expand_path(
+            self.config.get('wine_prefix_dir')
+            or os.path.expanduser('~/.local/share/Beer/prefixes')
+        )
+
+    def get_custom_runtime_paths(self):
+        """Return configured custom Proton/Wine paths."""
+        return list(self.config.get('custom_proton_paths') or [])
+
     def set(self, key, value):
         """Set a configuration value"""
         self.config[key] = value
         self._save_config()
-    
+
     def reset_to_default(self):
         """Reset configuration to defaults"""
-        self.config = self.DEFAULT_CONFIG.copy()
+        self.config = dict(self.DEFAULT_CONFIG)
         self._save_config()
-    
+
     def save_app(self, app_config):
         """Save an application configuration"""
-        # Check if app already exists
         for i, app in enumerate(self.apps):
             if app.get('name') == app_config.get('name'):
                 self.apps[i] = app_config
                 self._save_apps()
                 return True
-        
-        # Add new app
+
         self.apps.append(app_config)
         return self._save_apps()
-    
+
     def delete_app(self, app_name):
         """Delete an application configuration"""
         self.apps = [app for app in self.apps if app.get('name') != app_name]
         return self._save_apps()
-    
+
     def get_apps(self):
         """Get all saved applications"""
         return self.apps
-    
+
     def export_apps(self, filepath):
         """Export applications to file"""
         try:
@@ -144,15 +177,25 @@ class ConfigManager:
         except Exception as e:
             print(f"Error exporting apps: {e}")
             return False
-    
+
     def import_apps(self, filepath):
         """Import applications from file"""
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 imported = json.load(f)
-                if isinstance(imported, list):
-                    self.apps.extend(imported)
-                    return self._save_apps()
+            if isinstance(imported, list):
+                existing_names = {app.get('name') for app in self.apps}
+                for app in imported:
+                    if not isinstance(app, dict) or not app.get('name'):
+                        continue
+                    if app.get('name') in existing_names:
+                        self.apps = [
+                            app if old.get('name') == app.get('name') else old
+                            for old in self.apps
+                        ]
+                    else:
+                        self.apps.append(app)
+                return self._save_apps()
             return False
         except Exception as e:
             print(f"Error importing apps: {e}")

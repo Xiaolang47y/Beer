@@ -12,10 +12,11 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import Qt
 
 from ui.main_window import MainWindow
 from core.config_manager import ConfigManager
+from core.app_icon import get_app_icon
+from core.version import APP_NAME, APP_VERSION
 
 
 def main():
@@ -23,8 +24,11 @@ def main():
     os.environ['QT_ENABLE_HIGHDPI_SCALING'] = '1'
 
     app = QApplication(sys.argv)
-    app.setApplicationName('Beer')
-    app.setApplicationDisplayName('Beer')
+    app.setApplicationName(APP_NAME)
+    app.setApplicationDisplayName(APP_NAME)
+    app.setApplicationVersion(APP_VERSION)
+    app.setOrganizationName(APP_NAME)
+    app.setWindowIcon(get_app_icon())
 
     # Initialize config manager
     config = ConfigManager()

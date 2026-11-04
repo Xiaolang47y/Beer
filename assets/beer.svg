@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>Beer</title>
+  <defs>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f6c453"/>
+      <stop offset="100%" stop-color="#d98a12"/>
+    </linearGradient>
+    <linearGradient id="foam" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#fff4d6"/>
+    </linearGradient>
+  </defs>
+  <!-- background circle -->
+  <circle cx="256" cy="256" r="246" fill="#2b2b2b"/>
+  <!-- handle -->
+  <path d="M352 214 h42 a46 46 0 0 1 0 92 h-42" fill="none" stroke="#c79a3a" stroke-width="24"/>
+  <!-- glass body -->
+  <rect x="118" y="138" width="238" height="270" rx="26" fill="url(#glass)" stroke="#c79a3a" stroke-width="14"/>
+  <!-- beer -->
+  <rect x="132" y="236" width="210" height="158" rx="12" fill="#b96f06"/>
+  <!-- foam -->
+  <path d="M108 190
+           q-14 -36 22 -44 q8 -38 46 -30 q18 -34 54 -20 q28 -26 56 4
+           q34 -4 44 30 q30 18 22 58 z"
+        fill="url(#foam)"/>
+  <!-- bubbles -->
+  <circle cx="186" cy="290" r="13" fill="#ffd777" opacity="0.95"/>
+  <circle cx="246" cy="326" r="9" fill="#ffd777" opacity="0.85"/>
+  <circle cx="296" cy="278" r="11" fill="#ffd777" opacity="0.9"/>
+</svg>

@@ -5,9 +5,8 @@ Main window for Beer
 
 from PyQt6.QtWidgets import (
     QMainWindow, QStackedWidget, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QStatusBar
+    QPushButton, QStatusBar
 )
-from PyQt6.QtCore import Qt
 
 from ui.pages.main_page import MainPage
 from ui.pages.settings_page import SettingsPage
@@ -15,6 +14,7 @@ from ui.pages.log_panel import LogPanel
 from ui.pages.saved_apps_page import SavedAppsPage
 from i18n.translations import Translator
 from core.style_helpers import ensure_arrow_icons
+from core.app_icon import get_app_icon
 
 
 class MainWindow(QMainWindow):
@@ -25,7 +25,8 @@ class MainWindow(QMainWindow):
         self.config = config
         self.translator = Translator(config.get('language', 'en'))
         
-        self.setWindowTitle(self.translator('app_title'))
+        self.setWindowTitle('🍺 ' + self.translator('app_title'))
+        self.setWindowIcon(get_app_icon())
         self.setMinimumSize(900, 600)
         
         self.init_ui()
@@ -75,7 +76,7 @@ class MainWindow(QMainWindow):
         # Create pages
         self.main_page = MainPage(self.config, self.translator, self)
         self.saved_page = SavedAppsPage(self.config, self.translator, self)
-        self.log_panel = LogPanel(self.translator)
+        self.log_panel = LogPanel(self.config, self.translator)
         self.settings_page = SettingsPage(self.config, self.translator, self)
         
         self.stack.addWidget(self.main_page)
@@ -316,6 +317,41 @@ class MainWindow(QMainWindow):
             color: #ffffff;
             border: 1px solid #555555;
         }
+        QPlainTextEdit {
+            background-color: #1e1e1e;
+            color: #ffffff;
+            border: 1px solid #555555;
+            border-radius: 4px;
+        }
+        QTableWidget {
+            background-color: #2b2b2b;
+            alternate-background-color: #333638;
+            color: #ffffff;
+            border: 1px solid #555555;
+            border-radius: 4px;
+            gridline-color: #555555;
+            selection-background-color: #4a86c8;
+            selection-color: #ffffff;
+        }
+        QTableWidget::item {
+            padding: 4px 6px;
+        }
+        QHeaderView::section {
+            background-color: #3c3f41;
+            color: #ffffff;
+            border: 1px solid #555555;
+            padding: 6px;
+            font-weight: bold;
+        }
+        QTableCornerButton::section {
+            background-color: #3c3f41;
+            border: 1px solid #555555;
+        }
+        QToolTip {
+            background-color: #3c3f41;
+            color: #ffffff;
+            border: 1px solid #888888;
+        }
         QScrollBar:vertical {
             background-color: #2b2b2b;
             width: 10px;
@@ -520,6 +556,41 @@ class MainWindow(QMainWindow):
             color: #333333;
             border: 1px solid #cccccc;
         }
+        QPlainTextEdit {
+            background-color: #ffffff;
+            color: #333333;
+            border: 1px solid #cccccc;
+            border-radius: 4px;
+        }
+        QTableWidget {
+            background-color: #ffffff;
+            alternate-background-color: #f3f3f3;
+            color: #333333;
+            border: 1px solid #cccccc;
+            border-radius: 4px;
+            gridline-color: #dddddd;
+            selection-background-color: #4a86c8;
+            selection-color: #ffffff;
+        }
+        QTableWidget::item {
+            padding: 4px 6px;
+        }
+        QHeaderView::section {
+            background-color: #f0f0f0;
+            color: #333333;
+            border: 1px solid #cccccc;
+            padding: 6px;
+            font-weight: bold;
+        }
+        QTableCornerButton::section {
+            background-color: #f0f0f0;
+            border: 1px solid #cccccc;
+        }
+        QToolTip {
+            background-color: #ffffff;
+            color: #333333;
+            border: 1px solid #999999;
+        }
         QScrollBar:vertical {
             background-color: #f5f5f5;
             width: 10px;
@@ -567,7 +638,8 @@ class MainWindow(QMainWindow):
     def refresh_ui(self):
         """Refresh UI after settings change"""
         self.translator.set_language(self.config.get('language', 'en'))
-        self.setWindowTitle(self.translator('app_title'))
+        self.setWindowTitle('🍺 ' + self.translator('app_title'))
+        self.setWindowIcon(get_app_icon())
         
         # Update navigation buttons
         if hasattr(self, 'btn_main'):

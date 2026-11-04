@@ -3,13 +3,35 @@
 Settings page for Beer
 """
 
+import os
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QLineEdit, QComboBox, QFileDialog, QGroupBox, QCheckBox,
     QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
     QMessageBox, QScrollArea, QFrame
 )
-from PyQt6.QtCore import Qt, QEvent
+from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtGui import QDesktopServices
+
+STEAM_PROTON_VERSIONS = [
+    ('Proton 11.0', '4628710'),
+    ('Proton 10.0', '3658110'),
+    ('Proton 9.0', '2805730'),
+    ('Proton 8.0', '2348590'),
+    ('Proton 7.0', '1887720'),
+    ('Proton 6.3', '1580130'),
+    ('Proton 5.13', '1420170'),
+    ('Proton Hotfix', '2180100'),
+    ('Proton Experimental', '1493710'),
+]
+
+THIRD_PARTY_LINKS = {
+    'proton_ge': 'https://github.com/GloriousEggroll/proton-ge-custom/releases',
+    'wine_ge': 'https://github.com/GloriousEggroll/wine-ge-custom/releases',
+    'proton_cachyos': 'https://github.com/CachyOS/proton-cachyos/releases',
+    'protonup_qt': 'https://github.com/DavidoTek/ProtonUp-Qt/releases',
+}
 
 
 class NoWheelComboBox(QComboBox):
@@ -121,31 +143,104 @@ class SettingsPage(QWidget):
         layout = QVBoxLayout(widget)
         layout.setSpacing(15)
         
-        # Custom Proton path
-        self.custom_proton_group = QGroupBox(self.translator('custom_proton_path'))
-        custom_proton_layout = QVBoxLayout(self.custom_proton_group)
-        
-        self.custom_proton_desc = QLabel(self.translator('custom_proton_desc'))
-        self.custom_proton_desc.setWordWrap(True)
-        self.custom_proton_desc.setStyleSheet("color: gray; font-size: 11px;")
-        custom_proton_layout.addWidget(self.custom_proton_desc)
-        
-        custom_proton_row = QHBoxLayout()
-        self.chk_custom_proton = QCheckBox()
-        self.chk_custom_proton.toggled.connect(self.on_custom_proton_toggled)
-        custom_proton_row.addWidget(self.chk_custom_proton)
-        
-        self.txt_custom_proton_path = QLineEdit()
-        self.txt_custom_proton_path.setPlaceholderText("/path/to/custom/proton")
-        self.txt_custom_proton_path.editingFinished.connect(self.on_custom_proton_path_changed)
-        custom_proton_row.addWidget(self.txt_custom_proton_path)
-        
-        self.btn_browse_custom_proton = QPushButton(self.translator('browse'))
-        self.btn_browse_custom_proton.clicked.connect(self.browse_custom_proton)
-        custom_proton_row.addWidget(self.btn_browse_custom_proton)
-        
-        custom_proton_layout.addLayout(custom_proton_row)
-        layout.addWidget(self.custom_proton_group)
+        # Download Proton / Wine
+        self.download_group = QGroupBox(self.translator('download_proton_group'))
+        download_layout = QVBoxLayout(self.download_group)
+
+        self.download_desc = QLabel(self.translator('download_proton_desc'))
+        self.download_desc.setWordWrap(True)
+        self.download_desc.setStyleSheet("color: gray; font-size: 11px;")
+        download_layout.addWidget(self.download_desc)
+
+        steam_row = QHBoxLayout()
+        steam_row.addWidget(QLabel(self.translator('steam_proton_version')))
+        self.combo_steam_proton = NoWheelComboBox()
+        for name, app_id in STEAM_PROTON_VERSIONS:
+            self.combo_steam_proton.addItem(name, app_id)
+        self.combo_steam_proton.setMinimumWidth(200)
+        steam_row.addWidget(self.combo_steam_proton)
+
+        self.btn_install_steam_proton = QPushButton(
+            self.translator('install_via_steam')
+        )
+        self.btn_install_steam_proton.clicked.connect(self.install_steam_proton)
+        steam_row.addWidget(self.btn_install_steam_proton)
+
+        self.btn_open_steam = QPushButton(self.translator('open_steam'))
+        self.btn_open_steam.clicked.connect(self.open_steam)
+        steam_row.addWidget(self.btn_open_steam)
+        steam_row.addStretch()
+        download_layout.addLayout(steam_row)
+
+        third_party_label = QLabel(self.translator('third_party_proton'))
+        third_party_label.setStyleSheet("font-weight: bold; margin-top: 6px;")
+        download_layout.addWidget(third_party_label)
+
+        self.third_party_desc = QLabel(
+            self.translator('download_third_party_desc')
+        )
+        self.third_party_desc.setWordWrap(True)
+        self.third_party_desc.setStyleSheet("color: gray; font-size: 11px;")
+        download_layout.addWidget(self.third_party_desc)
+
+        links_row = QHBoxLayout()
+        self.btn_proton_ge = QPushButton(self.translator('proton_ge_releases'))
+        self.btn_proton_ge.clicked.connect(
+            lambda: self.open_link(THIRD_PARTY_LINKS['proton_ge'])
+        )
+        links_row.addWidget(self.btn_proton_ge)
+
+        self.btn_wine_ge = QPushButton(self.translator('wine_ge_releases'))
+        self.btn_wine_ge.clicked.connect(
+            lambda: self.open_link(THIRD_PARTY_LINKS['wine_ge'])
+        )
+        links_row.addWidget(self.btn_wine_ge)
+
+        self.btn_proton_cachyos = QPushButton(
+            self.translator('proton_cachyos')
+        )
+        self.btn_proton_cachyos.clicked.connect(
+            lambda: self.open_link(THIRD_PARTY_LINKS['proton_cachyos'])
+        )
+        links_row.addWidget(self.btn_proton_cachyos)
+
+        self.btn_protonup_qt = QPushButton(self.translator('protonup_qt'))
+        self.btn_protonup_qt.clicked.connect(
+            lambda: self.open_link(THIRD_PARTY_LINKS['protonup_qt'])
+        )
+        links_row.addWidget(self.btn_protonup_qt)
+        links_row.addStretch()
+        download_layout.addLayout(links_row)
+
+        layout.addWidget(self.download_group)
+
+        # Default Wine prefix directory
+        self.wine_prefix_group = QGroupBox(self.translator('wine_prefix_dir'))
+        wine_prefix_layout = QVBoxLayout(self.wine_prefix_group)
+
+        self.wine_prefix_desc = QLabel(self.translator('wine_prefix_dir_desc'))
+        self.wine_prefix_desc.setWordWrap(True)
+        self.wine_prefix_desc.setStyleSheet("color: gray; font-size: 11px;")
+        wine_prefix_layout.addWidget(self.wine_prefix_desc)
+
+        wine_prefix_row = QHBoxLayout()
+        self.txt_wine_prefix_dir = QLineEdit()
+        self.txt_wine_prefix_dir.setPlaceholderText(
+            "~/.local/share/Beer/prefixes"
+        )
+        self.txt_wine_prefix_dir.editingFinished.connect(
+            self.on_wine_prefix_dir_changed
+        )
+        wine_prefix_row.addWidget(self.txt_wine_prefix_dir)
+
+        self.btn_browse_wine_prefix_dir = QPushButton(self.translator('browse'))
+        self.btn_browse_wine_prefix_dir.clicked.connect(
+            self.browse_wine_prefix_dir
+        )
+        wine_prefix_row.addWidget(self.btn_browse_wine_prefix_dir)
+
+        wine_prefix_layout.addLayout(wine_prefix_row)
+        layout.addWidget(self.wine_prefix_group)
         
         # Proton search paths
         self.proton_paths_group = QGroupBox(self.translator('proton_search_paths'))
@@ -306,11 +401,12 @@ class SettingsPage(QWidget):
         self.combo_language.blockSignals(True)
         self.combo_theme.blockSignals(True)
         self.combo_default_page.blockSignals(True)
-        
-        # Custom Proton
-        self.chk_custom_proton.setChecked(self.config.get('custom_proton_enabled', False))
-        self.txt_custom_proton_path.setText(self.config.get('custom_proton_path', ''))
-        
+
+        # Default Wine prefix directory
+        self.txt_wine_prefix_dir.setText(
+            self.config.get('wine_prefix_dir', '')
+        )
+
         # Proton search paths
         paths = self.config.get('proton_search_paths', [])
         self.txt_proton_paths.setText(';'.join(paths))
@@ -349,14 +445,16 @@ class SettingsPage(QWidget):
     
     def save_settings(self):
         """Save settings to config (kept for compatibility, settings auto-save)"""
-        # Custom Proton
-        self.config.set('custom_proton_enabled', self.chk_custom_proton.isChecked())
-        self.config.set('custom_proton_path', self.txt_custom_proton_path.text())
-
         # Proton search paths
         paths_text = self.txt_proton_paths.text()
         paths = [p.strip() for p in paths_text.split(';') if p.strip()]
         self.config.set('proton_search_paths', paths)
+
+        # Default Wine prefix directory
+        self.config.set(
+            'wine_prefix_dir',
+            self.txt_wine_prefix_dir.text().strip()
+        )
 
         # Default page
         self.config.set('default_page', self.combo_default_page.currentData())
@@ -402,24 +500,60 @@ class SettingsPage(QWidget):
                 self.translator('config_reset')
             )
     
-    def on_custom_proton_toggled(self, checked):
-        """Handle custom Proton toggle - save immediately"""
-        self.txt_custom_proton_path.setEnabled(checked)
-        self.btn_browse_custom_proton.setEnabled(checked)
-        self.config.set('custom_proton_enabled', checked)
-        self.main_window.refresh_ui()
-    
-    def on_custom_proton_path_changed(self):
-        """Handle custom Proton path change - save immediately"""
-        self.config.set('custom_proton_path', self.txt_custom_proton_path.text())
-        self.main_window.refresh_ui()
-    
     def on_proton_paths_changed(self):
         """Handle proton paths change - save immediately"""
         paths_text = self.txt_proton_paths.text()
         paths = [p.strip() for p in paths_text.split(';') if p.strip()]
         self.config.set('proton_search_paths', paths)
         self.main_window.refresh_ui()
+
+    def on_wine_prefix_dir_changed(self):
+        """Save the default Wine prefix directory."""
+        self.config.set(
+            'wine_prefix_dir',
+            self.txt_wine_prefix_dir.text().strip()
+        )
+
+    def browse_wine_prefix_dir(self):
+        """Browse for the default Wine prefix directory."""
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            self.translator('wine_prefix_dir'),
+            self.txt_wine_prefix_dir.text() or os.path.expanduser('~')
+        )
+        if directory:
+            self.txt_wine_prefix_dir.setText(directory)
+            self.on_wine_prefix_dir_changed()
+
+    def open_link(self, url):
+        """Open a URL in the default browser."""
+        if not QDesktopServices.openUrl(QUrl(url)):
+            QMessageBox.warning(
+                self,
+                self.translator('error'),
+                self.translator('steam_not_available_msg')
+            )
+
+    def install_steam_proton(self):
+        """Ask Steam to install the selected Proton version."""
+        app_id = self.combo_steam_proton.currentData()
+        if not app_id:
+            return
+        if not QDesktopServices.openUrl(QUrl(f'steam://install/{app_id}')):
+            QMessageBox.warning(
+                self,
+                self.translator('steam_not_available'),
+                self.translator('steam_not_available_msg')
+            )
+
+    def open_steam(self):
+        """Open the Steam client."""
+        if not QDesktopServices.openUrl(QUrl('steam://open/games')):
+            QMessageBox.warning(
+                self,
+                self.translator('steam_not_available'),
+                self.translator('steam_not_available_msg')
+            )
     
     def on_show_log_changed(self, checked):
         """Handle show log change - save immediately"""
@@ -467,22 +601,9 @@ class SettingsPage(QWidget):
         self.config.set('environment_variables', env_vars)
 
     def toggle_custom_proton(self, checked):
-        """Toggle custom Proton path"""
-        self.txt_custom_proton_path.setEnabled(checked)
-        self.btn_browse_custom_proton.setEnabled(checked)
-    
-    def browse_custom_proton(self):
-        """Browse for custom Proton directory"""
-        directory = QFileDialog.getExistingDirectory(
-            self,
-            self.translator('select_proton')
-        )
-        
-        if directory:
-            self.txt_custom_proton_path.setText(directory)
-            self.config.set('custom_proton_path', directory)
-            self.main_window.refresh_ui()
-    
+        """Deprecated: custom Proton path is now managed on the main page."""
+        return
+
     def add_env_variable(self, key='', value=''):
         """Add environment variable to table"""
         row = self.env_table.rowCount()
@@ -516,7 +637,8 @@ class SettingsPage(QWidget):
         self.tabs.setTabText(1, self.translator('advanced_settings'))
 
         # Update group box titles
-        self.custom_proton_group.setTitle(self.translator('custom_proton_path'))
+        self.download_group.setTitle(self.translator('download_proton_group'))
+        self.wine_prefix_group.setTitle(self.translator('wine_prefix_dir'))
         self.proton_paths_group.setTitle(self.translator('proton_search_paths'))
         self.default_page_group.setTitle(self.translator('default_page'))
         self.theme_group.setTitle(self.translator('theme'))
@@ -526,7 +648,11 @@ class SettingsPage(QWidget):
         self.env_group.setTitle(self.translator('environment_variables'))
 
         # Update description labels
-        self.custom_proton_desc.setText(self.translator('custom_proton_desc'))
+        self.download_desc.setText(self.translator('download_proton_desc'))
+        self.third_party_desc.setText(
+            self.translator('download_third_party_desc')
+        )
+        self.wine_prefix_desc.setText(self.translator('wine_prefix_dir_desc'))
         self.proton_paths_desc.setText(self.translator('proton_paths_desc'))
         self.default_page_desc.setText(self.translator('default_page_desc'))
         self.theme_desc.setText(self.translator('theme_desc'))
@@ -537,7 +663,15 @@ class SettingsPage(QWidget):
 
         # Update buttons
         self.btn_reset.setText(self.translator('reset'))
-        self.btn_browse_custom_proton.setText(self.translator('browse'))
+        self.btn_install_steam_proton.setText(
+            self.translator('install_via_steam')
+        )
+        self.btn_open_steam.setText(self.translator('open_steam'))
+        self.btn_proton_ge.setText(self.translator('proton_ge_releases'))
+        self.btn_wine_ge.setText(self.translator('wine_ge_releases'))
+        self.btn_proton_cachyos.setText(self.translator('proton_cachyos'))
+        self.btn_protonup_qt.setText(self.translator('protonup_qt'))
+        self.btn_browse_wine_prefix_dir.setText(self.translator('browse'))
         self.btn_add_env.setText(self.translator('add'))
         self.btn_remove_env.setText(self.translator('remove'))
         self.btn_clean_icons.setText(self.translator('clean_icons_btn'))

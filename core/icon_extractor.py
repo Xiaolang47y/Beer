@@ -4,9 +4,7 @@ Icon extractor for Windows executables
 """
 
 import os
-import shutil
 import hashlib
-from pathlib import Path
 
 
 class IconExtractor:
