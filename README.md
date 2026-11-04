@@ -310,11 +310,10 @@ Beer/
 
 ## 画廊
 
-<img width="900" height="628" alt="图片" src="https://github.com/user-attachments/assets/832c1359-d3eb-4333-b010-8336dfeb881f" />
-<img width="900" height="628" alt="图片" src="https://github.com/user-attachments/assets/cd77bee0-1abc-48dd-a387-abbc418f2fbf" />
-<img width="900" height="628" alt="图片" src="https://github.com/user-attachments/assets/99b38b25-c57e-4d1d-af38-342d8973c45e" />
-<img width="900" height="628" alt="图片" src="https://github.com/user-attachments/assets/efaa61c4-103f-4a00-9478-eed3930c7be6" />
-<img width="900" height="628" alt="图片" src="https://github.com/user-attachments/assets/5d1f7752-0c33-4b13-a52d-aced5c7da95d" />
+<img width="906" height="627" alt="5072CBC19D95BF05BEC8D4E84143540F" src="https://github.com/user-attachments/assets/5cdaa440-7467-42cc-8ad8-4801eb9c8eee" />
+<img width="826" height="727" alt="FF17A325A9E8D2B9B594D3A9758EFE24" src="https://github.com/user-attachments/assets/4023b1ef-978f-4d8a-bd63-679a470c3fcf" />
+<img width="906" height="627" alt="B6ADF795E8FFB60F77917EB5BEC7E7D6" src="https://github.com/user-attachments/assets/2f84a514-e7a0-426a-a182-881f4b135618" />
+<img width="906" height="707" alt="7AF97B6CBFF6CFD1AA1F542DCD4A8430" src="https://github.com/user-attachments/assets/1e664ca4-9f25-4b00-8256-f1652bb6d598" />
 
 ---
 
