@@ -4,7 +4,7 @@
 Build script for Beer - package as executable with PyInstaller.
 
 Use ``python3 build.py`` for a single executable and ``python3 build.py
---appimage`` (or ``bash build_appimage.sh``) to create the V1.2 AppImage.
+--appimage`` (or ``bash build_appimage.sh``) to create the V1.3 AppImage.
 """
 
 import argparse
@@ -51,6 +51,43 @@ def build():
     if icon.exists():
         icon_args = [f'--icon={icon}']
 
+    # Qt input method plugins are required for Chinese/Japanese IME support in
+    # the packaged executable.  PyInstaller does not collect them by default,
+    # and distributions ship input method plugins (fcitx, ibus, compose) in
+    # their own Qt plugin directory.
+    plugin_args = []
+    try:
+        import glob
+        import PyQt6
+        plugin_files = {}
+
+        def collect_plugins(directory):
+            for path in glob.glob(str(Path(directory) / '*.so')):
+                plugin_files.setdefault(Path(path).name, path)
+
+        bundled = Path(PyQt6.__file__).parent / 'Qt6' / 'plugins' / 'platforminputcontexts'
+        if bundled.is_dir():
+            collect_plugins(bundled)
+
+        system_roots = [
+            '/usr/lib/x86_64-linux-gnu/qt6/plugins',
+            '/usr/lib64/qt6/plugins',
+            '/usr/lib/qt6/plugins',
+        ]
+        system_roots.extend(glob.glob('/usr/lib/*/qt6/plugins'))
+        for root in system_roots:
+            directory = Path(root) / 'platforminputcontexts'
+            if directory.is_dir():
+                collect_plugins(directory)
+
+        for path in plugin_files.values():
+            plugin_args.extend([
+                '--add-data',
+                f'{path}{os.pathsep}PyQt6/Qt6/plugins/platforminputcontexts',
+            ])
+    except Exception:
+        pass
+
     args = [
         sys.executable, '-m', 'PyInstaller',
         '--name=Beer',
@@ -59,6 +96,8 @@ def build():
         '--noconfirm',
         '--clean',
         '--add-data', 'assets:assets',
+        '--hidden-import=core.app_runner',
+        *plugin_args,
         *icon_args,
         'main.py'
     ]

@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QStackedWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QStatusBar
 )
+from PyQt6.QtCore import pyqtSignal
 
 from ui.pages.main_page import MainPage
 from ui.pages.settings_page import SettingsPage
@@ -19,7 +20,9 @@ from core.app_icon import get_app_icon
 
 class MainWindow(QMainWindow):
     """Main application window"""
-    
+
+    log_emitted = pyqtSignal(str, str)
+
     def __init__(self, config):
         super().__init__()
         self.config = config
@@ -659,7 +662,8 @@ class MainWindow(QMainWindow):
     def log_message(self, message, level='info'):
         """Log a message"""
         self.log_panel.log(message, level)
-    
+        self.log_emitted.emit(message, level)
+
     def show_log(self):
         """Show log page"""
         self.show_page(2)

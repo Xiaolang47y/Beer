@@ -8,10 +8,11 @@ import os
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QLineEdit, QFileDialog, QGroupBox, QSpinBox,
-    QListWidget, QListWidgetItem, QDialogButtonBox, QComboBox,
+    QListWidget, QListWidgetItem, QDialogButtonBox,
     QCheckBox, QScrollArea, QWidget, QSizePolicy
 )
 from PyQt6.QtCore import Qt
+from ui.widgets import BeerComboBox
 
 
 class MoreOptionsDialog(QDialog):
@@ -94,7 +95,7 @@ class MoreOptionsDialog(QDialog):
         left_column.addLayout(prefix_row)
 
         left_column.addWidget(QLabel(self.translator('wine_windows_version')))
-        self.combo_windows_version = QComboBox()
+        self.combo_windows_version = BeerComboBox()
         self.combo_windows_version.addItem(self.translator('wine_default'), 'default')
         self.combo_windows_version.addItem('Windows 7', 'win7')
         self.combo_windows_version.addItem('Windows 8', 'win8')
@@ -106,7 +107,7 @@ class MoreOptionsDialog(QDialog):
         left_column.addWidget(self.combo_windows_version)
 
         left_column.addWidget(QLabel(self.translator('wine_debug')))
-        self.combo_wine_debug = QComboBox()
+        self.combo_wine_debug = BeerComboBox()
         self.combo_wine_debug.addItem(self.translator('wine_debug_default'), '')
         self.combo_wine_debug.addItem(self.translator('wine_debug_none'), 'none')
         self.combo_wine_debug.addItem(self.translator('wine_debug_err'), 'err')

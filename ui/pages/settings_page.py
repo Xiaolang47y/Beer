@@ -7,12 +7,14 @@ import os
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QLineEdit, QComboBox, QFileDialog, QGroupBox, QCheckBox,
+    QLineEdit, QFileDialog, QGroupBox, QCheckBox,
     QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView,
-    QMessageBox, QScrollArea, QFrame
+    QMessageBox, QScrollArea
 )
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QDesktopServices
+
+from ui.widgets import BeerComboBox as NoWheelComboBox
 
 STEAM_PROTON_VERSIONS = [
     ('Proton 11.0', '4628710'),
@@ -32,63 +34,6 @@ THIRD_PARTY_LINKS = {
     'proton_cachyos': 'https://github.com/CachyOS/proton-cachyos/releases',
     'protonup_qt': 'https://github.com/DavidoTek/ProtonUp-Qt/releases',
 }
-
-
-class NoWheelComboBox(QComboBox):
-    """ComboBox that ignores scroll wheel events and has no view frame"""
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._fix_popup_frame()
-
-    def _popup_background_color(self):
-        """Return the background colour the popup container should use."""
-        widget = self
-        while widget is not None:
-            ss = widget.styleSheet()
-            if ss:
-                if '#2b2b2b' in ss or '#3c3f41' in ss:
-                    return '#3c3f41'
-                if '#f5f5f5' in ss or '#ffffff' in ss:
-                    return '#ffffff'
-            widget = widget.parent()
-        return '#ffffff'
-
-    def _fix_popup_frame(self):
-        """Remove the white/black bars around the dropdown popup.
-
-        The popup container is painted with the theme's combo-view background colour
-        so any exposed edges blend in.  Frame and layout margins are also removed.
-        """
-        view = self.view()
-        if view is None:
-            return
-        view.setFrameShape(QFrame.Shape.NoFrame)
-
-        container = view.parentWidget()
-        if container is not None and isinstance(container, QFrame):
-            container.setFrameShape(QFrame.Shape.NoFrame)
-            container.setFrameShadow(QFrame.Shadow.Plain)
-            container.setLineWidth(0)
-            container.setMidLineWidth(0)
-            container.setContentsMargins(0, 0, 0, 0)
-
-            layout = container.layout()
-            if layout is not None:
-                layout.setContentsMargins(0, 0, 0, 0)
-                layout.setSpacing(0)
-
-            bg = self._popup_background_color()
-            container.setStyleSheet(
-                f"QFrame {{ background-color: {bg}; border: none; }}"
-            )
-
-    def showPopup(self):
-        """Re-apply frame fix after popup is shown"""
-        super().showPopup()
-        self._fix_popup_frame()
-
-    def wheelEvent(self, event):
-        event.ignore()
 
 
 class SettingsPage(QWidget):
@@ -310,6 +255,8 @@ class SettingsPage(QWidget):
         self.combo_language.addItem(self.translator('language_system'), 'system')
         self.combo_language.addItem("English", 'en')
         self.combo_language.addItem("中文", 'zh')
+        self.combo_language.addItem("日本語", 'ja')
+        self.combo_language.addItem("Français", 'fr')
         self.combo_language.currentIndexChanged.connect(self.on_language_changed)
         self.combo_language.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         language_layout.addWidget(self.combo_language)
@@ -560,8 +507,8 @@ class SettingsPage(QWidget):
         self.config.set('show_log_on_start', checked)
 
     def on_clean_icons(self):
-        """Remove icon files that are no longer referenced by saved apps."""
-        count = self.config.clean_unused_icons()
+        """Remove icon and custom image files no longer used by saved apps."""
+        count = self.config.clean_unused_images()
         QMessageBox.information(
             self,
             self.translator('info'),

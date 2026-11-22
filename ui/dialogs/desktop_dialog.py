@@ -7,7 +7,7 @@ import os
 
 from PyQt6.QtWidgets import (
     QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout,
-    QLabel, QLineEdit, QCheckBox, QComboBox, QPushButton, QVBoxLayout,
+    QLabel, QLineEdit, QCheckBox, QPushButton, QVBoxLayout,
     QPlainTextEdit, QWidget, QMessageBox, QScrollArea, QProgressDialog
 )
 from PyQt6.QtCore import Qt
@@ -18,6 +18,8 @@ from core.desktop_generator import (
     sanitize_filename,
 )
 from ui.icon_extract_task import IconExtractTask
+from ui.pages.app_helpers import enable_ime
+from ui.widgets import BeerComboBox
 
 
 class DesktopEntryDialog(QDialog):
@@ -35,6 +37,8 @@ class DesktopEntryDialog(QDialog):
         self._filename_edited = False
         self._updating = False
         self._icon_tasks = []
+        self._app_id = options.get('app_id', '')
+        self._compat_data_path = options.get('compat_data_path', '')
 
         self.setWindowTitle(self.translator('desktop_settings'))
         self.resize(880, 720)
@@ -76,9 +80,11 @@ class DesktopEntryDialog(QDialog):
 
         self.txt_name = QLineEdit()
         self.txt_name.textChanged.connect(self.on_name_changed)
+        enable_ime(self.txt_name)
         form.addRow(self.translator('desktop_name'), self.txt_name)
 
         self.txt_comment = QLineEdit()
+        enable_ime(self.txt_comment)
         form.addRow(self.translator('desktop_comment'), self.txt_comment)
 
         exe_row = QWidget()
@@ -103,7 +109,7 @@ class DesktopEntryDialog(QDialog):
         dir_layout.addWidget(self.btn_browse_dir)
         form.addRow(self.translator('desktop_working_dir'), dir_row)
 
-        self.combo_runtime = QComboBox()
+        self.combo_runtime = BeerComboBox()
         self.combo_runtime.addItem(self.translator('desktop_no_runtime'), '')
         for runtime in self.runtimes:
             label = '{} · {} ({})'.format(
@@ -149,7 +155,7 @@ class DesktopEntryDialog(QDialog):
         location_row = QWidget()
         location_layout = QHBoxLayout(location_row)
         location_layout.setContentsMargins(0, 0, 0, 0)
-        self.combo_target = QComboBox()
+        self.combo_target = BeerComboBox()
         self.combo_target.addItem(self.translator('desktop_target_desktop'), 'desktop')
         self.combo_target.addItem(self.translator('desktop_target_applications'), 'applications')
         self.combo_target.addItem(self.translator('desktop_target_custom'), 'custom')
@@ -233,7 +239,11 @@ class DesktopEntryDialog(QDialog):
         index = self.combo_target.findData(target)
         if index >= 0:
             self.combo_target.setCurrentIndex(index)
-        self.txt_custom_dir.setText(options.get('custom_dir', '') or self.generator.desktop_dir)
+        self.txt_custom_dir.setText(
+            options.get('custom_dir', '')
+            or options.get('desktop_dir', '')
+            or self.generator.desktop_dir
+        )
 
         filename = options.get('filename', '')
         if filename:
@@ -265,6 +275,8 @@ class DesktopEntryDialog(QDialog):
             'target': self.combo_target.currentData() or 'desktop',
             'desktop_dir': self.txt_custom_dir.text().strip(),
             'filename': self.txt_filename.text().strip(),
+            'app_id': self._app_id,
+            'compat_data_path': self._compat_data_path,
         }
 
     # ------------------------------------------------------------------
@@ -433,6 +445,8 @@ class DesktopEntryDialog(QDialog):
                 terminal=options['terminal'],
                 categories=options['categories'],
                 wine_options=self._wine_options,
+                app_id=options.get('app_id', ''),
+                compat_data_path=options.get('compat_data_path', ''),
             )
             self.preview.setPlainText(content)
         except Exception as exc:
@@ -506,8 +520,11 @@ class DesktopEntryDialog(QDialog):
     def _wine_options(self):
         return getattr(self, '_wine_opts', {})
 
-    def set_runtime_context(self, env_vars=None, wine_options=None):
+    def set_runtime_context(self, env_vars=None, wine_options=None,
+                            compat_data_path=''):
         """Set environment variables and Wine options used for the preview."""
         self._env_vars = env_vars or {}
         self._wine_opts = wine_options or {}
+        if compat_data_path:
+            self._compat_data_path = compat_data_path
         self.update_preview()

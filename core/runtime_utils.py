@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import uuid
 
 PROTON_SCRIPT_NAMES = ('proton',)
 WINE_BINARY_NAMES = ('wine', 'wine64', 'wine-stable', 'wine-staging', 'wine-devel')
@@ -269,20 +270,177 @@ def default_wine_prefix():
 
 def get_steam_compat_env(proton_path=None, compat_data_path=None):
     """Build Steam compatibility environment variables for Proton."""
-    steam_root = find_steam_root()
-    if not steam_root:
-        return {}
     data_path = expand_path(compat_data_path) or default_compat_data_path()
     try:
         os.makedirs(data_path, exist_ok=True)
     except OSError:
         return {}
-    return {
-        'STEAM_COMPAT_CLIENT_INSTALL_PATH': steam_root,
+    env = {
         'STEAM_COMPAT_DATA_PATH': data_path,
         'SteamAppId': '0',
         'SteamGameId': '0',
     }
+    steam_root = find_steam_root()
+    if steam_root:
+        env['STEAM_COMPAT_CLIENT_INSTALL_PATH'] = steam_root
+    return env
+
+
+def default_compat_data_dir():
+    """Directory that stores per-application Proton prefixes."""
+    return os.path.expanduser('~/.local/share/Beer/compatdata')
+
+
+def _safe_component(value, fallback='app'):
+    safe = re.sub(r'[^0-9A-Za-z._-]+', '-', str(value or '')).strip('-._')
+    return (safe or fallback)[:40]
+
+
+def generate_app_id(app, existing=()):
+    """Return a unique, filesystem-safe identifier for an application."""
+    current = str((app or {}).get('app_id') or '').strip()
+    if current:
+        return current
+    base = _safe_component((app or {}).get('name'), 'app').lower()
+    existing = set(existing or ())
+    while True:
+        candidate = f'{base}-{uuid.uuid4().hex[:8]}'
+        if candidate not in existing:
+            return candidate
+
+
+def app_runtime_type(app):
+    """Return ``'proton'``, ``'wine'`` or ``''`` for a saved application."""
+    app = app or {}
+    if app.get('native'):
+        return ''
+    runtime_type = str(app.get('runtime_type') or '').lower()
+    if runtime_type in ('proton', 'wine'):
+        return runtime_type
+    path = str(app.get('proton_path') or '')
+    if not path:
+        return ''
+    runtime = detect_runtime(path)
+    if runtime:
+        return runtime.get('type', '')
+    lower = os.path.basename(path).lower()
+    if 'proton' in lower:
+        return 'proton'
+    if 'wine' in lower:
+        return 'wine'
+    return ''
+
+
+def app_prefix_info(config, app):
+    """Return ``(runtime_type, prefix_path, legacy_path)`` for an app.
+
+    Proton uses ``STEAM_COMPAT_DATA_PATH`` while Wine uses ``WINEPREFIX``.
+    ``legacy_path`` is the old shared prefix used by earlier Beer versions;
+    it is empty when the application already has an explicit custom prefix.
+    """
+    app = app or {}
+    runtime_type = app_runtime_type(app)
+    if runtime_type == 'proton':
+        app_id = app.get('app_id') or _safe_component(app.get('name'))
+        path = expand_path(app.get('compat_data_path', '')) or os.path.join(
+            default_compat_data_dir(), app_id
+        )
+        return runtime_type, path, default_compat_data_path()
+    if runtime_type == 'wine':
+        options = ((app.get('more_options') or {}).get('wine_options') or {})
+        explicit = expand_path(options.get('prefix', ''))
+        if explicit:
+            return runtime_type, explicit, ''
+        app_id = app.get('app_id') or _safe_component(app.get('name'))
+        base = ''
+        if config is not None:
+            try:
+                base = config.get_wine_prefix_dir()
+            except Exception:
+                base = ''
+        path = expand_path(app.get('wine_prefix', '')) or os.path.join(
+            base or default_wine_prefix_dir(), app_id
+        )
+        return runtime_type, path, default_wine_prefix()
+    return '', '', ''
+
+
+def ensure_app_prefix_fields(config, app):
+    """Fill ``app_id`` and default prefix fields in place.
+
+    Returns True when the application dict was modified.
+    """
+    app = app or {}
+    changed = False
+    if not app.get('app_id'):
+        app['app_id'] = generate_app_id(app)
+        changed = True
+    runtime_type = app_runtime_type(app)
+    if runtime_type == 'proton' and not app.get('compat_data_path'):
+        app['compat_data_path'] = os.path.join(
+            default_compat_data_dir(), app['app_id']
+        )
+        changed = True
+    if runtime_type == 'wine':
+        options = ((app.get('more_options') or {}).get('wine_options') or {})
+        if not expand_path(options.get('prefix', '')) and not app.get('wine_prefix'):
+            base = ''
+            if config is not None:
+                try:
+                    base = config.get_wine_prefix_dir()
+                except Exception:
+                    base = ''
+            app['wine_prefix'] = os.path.join(
+                base or default_wine_prefix_dir(), app['app_id']
+            )
+            changed = True
+    return changed
+
+
+def prefix_has_data(prefix_path, runtime_type):
+    """Return True when a prefix directory already contains a Wine prefix."""
+    if not prefix_path or not os.path.isdir(prefix_path):
+        return False
+    if runtime_type == 'proton':
+        return os.path.isdir(os.path.join(prefix_path, 'pfx'))
+    if runtime_type == 'wine':
+        return os.path.isdir(os.path.join(prefix_path, 'drive_c'))
+    return bool(os.listdir(prefix_path))
+
+
+def prefix_needs_migration(runtime_type, prefix_path, legacy_path):
+    """Return True when legacy data exists and the new prefix is still empty."""
+    if not runtime_type or not legacy_path or not prefix_path:
+        return False
+    if os.path.realpath(prefix_path) == os.path.realpath(legacy_path):
+        return False
+    return (
+        not prefix_has_data(prefix_path, runtime_type)
+        and prefix_has_data(legacy_path, runtime_type)
+    )
+
+
+def migrate_prefix(legacy_path, target_path, mode='move'):
+    """Move or copy an old shared prefix to a per-application location."""
+    if not legacy_path or not target_path:
+        return False
+    if os.path.realpath(legacy_path) == os.path.realpath(target_path):
+        return False
+    if not os.path.isdir(legacy_path):
+        return False
+    if os.path.isdir(target_path) and os.listdir(target_path):
+        return False
+    try:
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        if mode == 'copy':
+            shutil.copytree(legacy_path, target_path, dirs_exist_ok=True)
+        else:
+            if os.path.isdir(target_path):
+                os.rmdir(target_path)
+            shutil.move(legacy_path, target_path)
+        return True
+    except (OSError, shutil.Error):
+        return False
 
 
 def wine_binary_for(runtime):
@@ -337,7 +495,7 @@ def _apply_wine_option_env(env, wine_options):
 
 
 def build_runtime_environment(runtime, wine_options=None, env_vars=None,
-                              architecture=None):
+                              architecture=None, compat_data_path=None):
     """Build the environment used to launch a program.
 
     Returns ``(environment, wine_prefix)``.
@@ -347,7 +505,9 @@ def build_runtime_environment(runtime, wine_options=None, env_vars=None,
     prefix = ''
 
     if runtime and runtime.get('type') == 'proton':
-        env.update(get_steam_compat_env(runtime.get('path')))
+        env.update(get_steam_compat_env(
+            runtime.get('path'), compat_data_path
+        ))
     elif runtime and runtime.get('type') == 'wine':
         prefix = expand_path(options.get('prefix', '')) or default_wine_prefix()
         newly_created = not os.path.isdir(prefix)

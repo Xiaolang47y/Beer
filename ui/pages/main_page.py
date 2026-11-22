@@ -8,78 +8,27 @@ import shlex
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QLineEdit, QComboBox, QFileDialog, QGroupBox,
-    QMessageBox, QScrollArea, QFrame, QTableWidget, QTableWidgetItem,
-    QHeaderView, QAbstractItemView, QProgressDialog
+    QLineEdit, QFileDialog, QGroupBox,
+    QMessageBox, QScrollArea, QTableWidget, QTableWidgetItem,
+    QHeaderView, QAbstractItemView, QProgressDialog, QDialog
 )
 from PyQt6.QtCore import Qt, QProcess, QTimer
 
 from core.proton_manager import ProtonManager
 from core.icon_extractor import IconExtractor
 from core.desktop_generator import DesktopGenerator, sanitize_filename
-from core.runtime_utils import detect_runtime
+from core.runtime_utils import (
+    app_prefix_info,
+    detect_runtime,
+    ensure_app_prefix_fields,
+)
 from ui.dialogs.more_options_dialog import MoreOptionsDialog
 from ui.dialogs.desktop_dialog import DesktopEntryDialog
 from ui.dialogs.winetricks_dialog import WinetricksDialog
+from ui.dialogs.save_app_dialog import SaveAppDialog
 from ui.icon_extract_task import IconExtractTask
-
-
-def _popup_background_color(combo):
-    """Return the background colour the popup container should use.
-
-    Qt stylesheets do not reliably update QWidget.palette(), so we inspect the
-    stylesheet that is actually applied to the combo or its ancestors.
-    """
-    widget = combo
-    while widget is not None:
-        ss = widget.styleSheet()
-        if ss:
-            if '#2b2b2b' in ss or '#3c3f41' in ss:
-                return '#3c3f41'
-            if '#f5f5f5' in ss or '#ffffff' in ss:
-                return '#ffffff'
-        widget = widget.parent()
-    return '#ffffff'
-
-
-def fix_combobox_frame(combo):
-    """Remove the white/black bars around a combo box dropdown popup."""
-    view = combo.view()
-    if view is None:
-        return
-    view.setFrameShape(QFrame.Shape.NoFrame)
-
-    container = view.parentWidget()
-    if container is not None and isinstance(container, QFrame):
-        container.setFrameShape(QFrame.Shape.NoFrame)
-        container.setFrameShadow(QFrame.Shadow.Plain)
-        container.setLineWidth(0)
-        container.setMidLineWidth(0)
-        container.setContentsMargins(0, 0, 0, 0)
-
-        layout = container.layout()
-        if layout is not None:
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.setSpacing(0)
-
-        bg = _popup_background_color(combo)
-        container.setStyleSheet(
-            f"QFrame {{ background-color: {bg}; border: none; }}"
-        )
-
-
-class FramelessComboBox(QComboBox):
-    """ComboBox with no dropdown white frame and no scroll-wheel change"""
-
-    def _fix_popup_frame(self):
-        fix_combobox_frame(self)
-
-    def showPopup(self):
-        super().showPopup()
-        self._fix_popup_frame()
-
-    def wheelEvent(self, event):
-        event.ignore()
+from ui.pages.app_helpers import enable_ime
+from ui.widgets import BeerComboBox as FramelessComboBox
 
 
 class MainPage(QWidget):
@@ -248,6 +197,7 @@ class MainPage(QWidget):
 
         self.program_name = QLineEdit()
         self.program_name.setPlaceholderText("My Program")
+        enable_ime(self.program_name)
         name_layout.addWidget(self.program_name)
 
         layout.addWidget(self.name_group)
@@ -574,10 +524,8 @@ class MainPage(QWidget):
     # Application config
     # ------------------------------------------------------------------
     def save_config(self):
-        """Save the current configuration."""
-        app_config = self._get_app_config(icon_path='')
-        name = app_config.get('name', '')
-
+        """Save the current configuration after asking for name/categories."""
+        name = self.program_name.text().strip()
         if not name:
             QMessageBox.warning(
                 self,
@@ -595,6 +543,33 @@ class MainPage(QWidget):
             )
             return
 
+        runtime_label = '{} · {} ({})'.format(
+            runtime.get('name', ''),
+            runtime.get('version_str', ''),
+            self.translator('runtime_type_' + runtime.get('type', 'proton')),
+        )
+        dialog = SaveAppDialog(
+            self.translator,
+            name=name,
+            description=name,
+            tags=[],
+            runtime_label=runtime_label,
+            exe_path=self.program_path.text().strip(),
+            parent=self,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        values = dialog.get_values()
+        name = values.get('name', '').strip()
+        if not name:
+            QMessageBox.warning(
+                self,
+                self.translator('warning'),
+                self.translator('name_required'),
+            )
+            return
+
         existing_apps = self.config.get_apps()
         for app in existing_apps:
             if app.get('name') == name:
@@ -607,6 +582,11 @@ class MainPage(QWidget):
                 if reply != QMessageBox.StandardButton.Yes:
                     return
                 break
+
+        app_config = self._get_app_config(icon_path='')
+        app_config['name'] = name
+        app_config['description'] = values.get('description', '') or name
+        app_config['tags'] = values.get('tags', [])
 
         # Icon extraction can take a while; run it in the background so the
         # UI stays responsive and a progress dialog can be shown.
@@ -859,13 +839,85 @@ class MainPage(QWidget):
             )
         )
 
+    def _prepare_shortcut_app(self, name, exe_path, icon_path):
+        """Return the app used for recording plus a preview of the run config.
+
+        Generating a shortcut always needs a saved application so the runner
+        can attach launch time and total runtime to it.  Nothing is written
+        until the shortcut dialog is accepted.
+        """
+        launch = self._get_app_config(icon_path=icon_path)
+        app = self.config.find_app_by_exe(exe_path)
+        if app is None:
+            launch['name'] = self.config.unique_app_name(name)
+            launch['description'] = name
+            launch['tags'] = []
+            ensure_app_prefix_fields(self.config, launch)
+            return {
+                'app': launch,
+                'updates': None,
+                'is_new': True,
+                'preview': launch,
+            }
+
+        preview = dict(app)
+        for key in self._shortcut_launch_fields():
+            preview[key] = launch.get(key)
+        ensure_app_prefix_fields(self.config, preview)
+        return {
+            'app': app,
+            'updates': launch,
+            'is_new': False,
+            'preview': preview,
+        }
+
+    @staticmethod
+    def _shortcut_launch_fields():
+        return (
+            'proton_path', 'runtime_type', 'exe_path', 'run_directory',
+            'architecture', 'more_options',
+        )
+
+    def _commit_shortcut_app(self, app, updates, is_new):
+        if is_new:
+            self.config.save_app(app)
+            message = self.translator('shortcut_app_saved').format(
+                name=app.get('name', '')
+            )
+        else:
+            for key in self._shortcut_launch_fields():
+                app[key] = updates.get(key)
+            ensure_app_prefix_fields(self.config, app)
+            self.config._save_apps()
+            message = self.translator('shortcut_app_updated').format(
+                name=app.get('name', '')
+            )
+        self.main_window.log_message(message, 'info')
+        saved_page = getattr(self.main_window, 'saved_page', None)
+        if saved_page is not None:
+            saved_page.refresh()
+
     def _open_desktop_dialog(self, name, exe_path, icon_path, error=''):
         if error:
             self.main_window.log_message(
                 f"{self.translator('icon_extraction_failed')}: {error}", 'warning'
             )
 
+        prepared = self._prepare_shortcut_app(name, exe_path, icon_path)
+        pending = prepared['app']
+        updates = prepared['updates']
+        is_new = prepared['is_new']
+        preview = prepared['preview']
+
         runtime = self.selected_runtime()
+        prefix_type, prefix_path, _legacy = app_prefix_info(
+            self.config, preview
+        )
+        wine_options = dict(self.more_options.get('wine_options', {}) or {})
+        if prefix_type == 'wine' and not wine_options.get('prefix'):
+            wine_options['prefix'] = prefix_path
+        compat_data_path = prefix_path if prefix_type == 'proton' else ''
+
         options = {
             'name': name,
             'comment': name,
@@ -878,6 +930,8 @@ class MainPage(QWidget):
             'terminal': False,
             'target': 'desktop',
             'filename': sanitize_filename(name) + '.desktop',
+            'app_id': preview.get('app_id', ''),
+            'compat_data_path': compat_data_path,
         }
 
         dialog = DesktopEntryDialog(
@@ -889,17 +943,19 @@ class MainPage(QWidget):
         )
         dialog.set_runtime_context(
             env_vars=self.config.get('environment_variables', {}),
-            wine_options=self.more_options.get('wine_options', {}) or {},
+            wine_options=wine_options,
+            compat_data_path=compat_data_path,
         )
 
         if not dialog.exec():
             return
 
+        self._commit_shortcut_app(pending, updates, is_new)
         desktop_options = dialog.get_options()
         success, result = self.desktop_generator.generate_desktop_file(
             **desktop_options,
             env_vars=self.config.get('environment_variables', {}),
-            wine_options=self.more_options.get('wine_options', {}) or {},
+            wine_options=wine_options,
             translator=self.translator,
         )
 

@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 #
-# Build a portable Beer AppImage (V1.2).
+# Build a portable Beer AppImage (V1.3).
 #
 # Usage:
-#   bash build_appimage.sh                 # build dist/Beer-V1.2-x86_64.AppImage
-#   VERSION=1.2 ARCH=x86_64 bash build_appimage.sh
+#   bash build_appimage.sh                 # build dist/Beer-V1.3-x86_64.AppImage
+#   VERSION=1.3 ARCH=x86_64 bash build_appimage.sh
 #   APPIMAGE_EXTRACT_AND_RUN=1 bash build_appimage.sh   # systems without FUSE
 #
 set -euo pipefail
 
 cd "$(dirname "$0")"
 
-VERSION="${VERSION:-1.2}"
+VERSION="${VERSION:-1.3}"
 ARCH="${ARCH:-x86_64}"
 OUTPUT="dist/Beer-V${VERSION}-${ARCH}.AppImage"
 APPDIR="build/AppDir"

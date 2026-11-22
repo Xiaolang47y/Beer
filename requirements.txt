@@ -1,4 +1,8 @@
-PyQt6>=6.4.0
+# Qt 6.4.2 matches the Qt version used by the system fcitx/ibus input method
+# plugins, which rely on private Qt APIs. Newer Qt releases refuse to load them.
+PyQt6==6.4.2
+PyQt6-Qt6==6.4.2
+PyQt6-sip>=13.4,<14
 pefile>=2023.2.7
 Pillow>=9.0.0
 pyinstaller>=6.0.0

@@ -7,7 +7,7 @@ import os
 
 from PyQt6.QtWidgets import (
     QDialog, QDialogButtonBox, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QLineEdit, QComboBox, QTableWidget, QTableWidgetItem,
+    QPushButton, QLineEdit, QTableWidget, QTableWidgetItem,
     QHeaderView, QPlainTextEdit, QMessageBox, QFileDialog,
     QAbstractItemView
 )
@@ -21,6 +21,7 @@ from core.winetricks_manager import (
     item_text,
     prefix_for_name,
 )
+from ui.widgets import BeerComboBox
 
 
 class WinetricksDialog(QDialog):
@@ -72,7 +73,7 @@ class WinetricksDialog(QDialog):
         # Target runtime and prefix
         top_row = QHBoxLayout()
         top_row.addWidget(QLabel(self.translator('winetricks_runtime')))
-        self.combo_runtime = QComboBox()
+        self.combo_runtime = BeerComboBox()
         self.combo_runtime.setMinimumWidth(260)
         top_row.addWidget(self.combo_runtime)
 

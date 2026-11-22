@@ -204,7 +204,7 @@ class ProtonManager(QObject):
 
         runtime_env, _prefix = build_runtime_environment(
             runtime, wine_options=wine_options, env_vars=env_vars,
-            architecture=architecture
+            architecture=architecture, compat_data_path=compat_data_path
         )
         if compat_data_path and runtime and runtime.get('type') == 'proton':
             runtime_env['STEAM_COMPAT_DATA_PATH'] = expand_path(compat_data_path)
@@ -330,3 +330,25 @@ class ProtonManager(QObject):
             process.deleteLater()
         except Exception:
             pass
+
+    # ------------------------------------------------------------------
+    # Force stop
+    # ------------------------------------------------------------------
+    def terminate_all(self):
+        """Terminate every running Proton/Wine process.
+
+        Returns the number of processes that were asked to stop.
+        """
+        stopped = 0
+        for process in list(self._processes):
+            try:
+                if process.state() == QProcess.ProcessState.NotRunning:
+                    continue
+                process.terminate()
+                if not process.waitForFinished(1500):
+                    process.kill()
+                    process.waitForFinished(1000)
+                stopped += 1
+            except Exception:
+                continue
+        return stopped

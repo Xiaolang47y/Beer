@@ -8,7 +8,7 @@ Beer uses the Proton compatibility layer installed through Steam (as well as any
 
 The original goal of this project was to solve the difficulty of obtaining and managing Wine across Linux distributions.
 
-> Current version: **V1.2**
+> Current version: **V1.3**
 >
 > This application was generated with TRAE AI.
 
@@ -111,14 +111,14 @@ chmod +x Beer
 ### Option 3: AppImage (Linux)
 
 ```bash
-chmod +x Beer-V1.2-x86_64.AppImage
-./Beer-V1.2-x86_64.AppImage
+chmod +x Beer-V1.3-x86_64.AppImage
+./Beer-V1.3-x86_64.AppImage
 ```
 
 If FUSE is unavailable, install `libfuse2` or run:
 
 ```bash
-APPIMAGE_EXTRACT_AND_RUN=1 ./Beer-V1.2-x86_64.AppImage
+APPIMAGE_EXTRACT_AND_RUN=1 ./Beer-V1.3-x86_64.AppImage
 ```
 
 ---
@@ -267,12 +267,12 @@ The script:
 1. Builds `dist/Beer` with PyInstaller;
 2. Creates an AppDir containing `AppRun`, the `.desktop` file and an icon (the PNG rendered from the 🍺 emoji when available, otherwise `assets/beer.svg`);
 3. Finds or downloads `appimagetool`;
-4. Produces `dist/Beer-V1.2-x86_64.AppImage`.
+4. Produces `dist/Beer-V1.3-x86_64.AppImage`.
 
 Optional environment variables:
 
 ```bash
-VERSION=1.2 ARCH=x86_64 bash build_appimage.sh
+VERSION=1.3 ARCH=x86_64 bash build_appimage.sh
 APPIMAGE_EXTRACT_AND_RUN=1 bash build_appimage.sh
 APPIMAGETOOL=/path/to/appimagetool bash build_appimage.sh
 ```

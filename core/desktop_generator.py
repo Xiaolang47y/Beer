@@ -10,6 +10,7 @@ import os
 import re
 import shlex
 import subprocess
+import sys
 
 from core.runtime_utils import (
     default_wine_prefix,
@@ -59,6 +60,18 @@ def _split_args(args):
         except ValueError:
             return args.split()
     return [str(arg) for arg in args]
+
+
+def beer_launch_command():
+    """Return the argv needed to start Beer itself.
+
+    Generated shortcuts use this to record the launch time even when the
+    graphical interface is closed.
+    """
+    if getattr(sys, 'frozen', False):
+        return [os.environ.get('APPIMAGE') or sys.executable]
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return [sys.executable, os.path.join(project_root, 'main.py')]
 
 
 def _sanitize_filename(name):
@@ -150,11 +163,14 @@ class DesktopGenerator:
     # ------------------------------------------------------------------
     # Command construction
     # ------------------------------------------------------------------
-    def _desktop_environment(self, runtime, wine_options, env_vars):
+    def _desktop_environment(self, runtime, wine_options, env_vars,
+                             compat_data_path=None):
         env = {}
 
         if runtime and runtime.get('type') == 'proton':
-            env.update(get_steam_compat_env(runtime.get('path')))
+            env.update(get_steam_compat_env(
+                runtime.get('path'), compat_data_path
+            ))
         elif runtime and runtime.get('type') == 'wine':
             prefix = expand_path((wine_options or {}).get('prefix', '')) or default_wine_prefix()
             env['WINEPREFIX'] = prefix
@@ -169,10 +185,13 @@ class DesktopGenerator:
         return env
 
     def build_command(self, exe_path, runtime=None, args=None, env_vars=None,
-                      wine_options=None, working_dir=None):
+                      wine_options=None, working_dir=None, app_id='',
+                      compat_data_path=None):
         """Build the ``Exec`` command string."""
         argv = []
-        env = self._desktop_environment(runtime, wine_options, env_vars)
+        env = self._desktop_environment(
+            runtime, wine_options, env_vars, compat_data_path
+        )
         if env:
             argv.append('env')
             argv.extend(f'{key}={value}' for key, value in env.items())
@@ -192,6 +211,13 @@ class DesktopGenerator:
         else:
             argv.append(exe_path)
             argv.extend(_split_args(args))
+
+        if app_id:
+            # Route the shortcut through Beer's headless recorder so launch
+            # time and total runtime are tracked with the UI closed.
+            argv = beer_launch_command() + [
+                '--record-app', str(app_id), '--'
+            ] + argv
 
         return ' '.join(_quote_exec_arg(part) for part in argv)
 
@@ -286,7 +312,8 @@ class DesktopGenerator:
                               working_dir=None, runtime_path=None,
                               env_vars=None, args=None, comment=None,
                               terminal=False, categories=DEFAULT_CATEGORIES,
-                              wine_options=None):
+                              wine_options=None, app_id='',
+                              compat_data_path=None):
         """Return the text content of a .desktop file."""
         runtime = detect_runtime(runtime_path) if runtime_path else None
 
@@ -302,6 +329,8 @@ class DesktopGenerator:
             env_vars=env_vars,
             wine_options=wine_options,
             working_dir=working_dir,
+            app_id=app_id,
+            compat_data_path=compat_data_path,
         )
 
         categories = (categories or DEFAULT_CATEGORIES).strip() or DEFAULT_CATEGORIES
@@ -344,7 +373,8 @@ class DesktopGenerator:
                               filename=None, wine_options=None,
                               runtime_path=None, target='desktop',
                               overwrite=True, architecture=None,
-                              translator=None):
+                              translator=None, app_id='',
+                              compat_data_path=None):
         """Generate a .desktop file.
 
         ``proton_path`` is kept as a backwards compatible alias for
@@ -389,6 +419,8 @@ class DesktopGenerator:
             terminal=terminal,
             categories=categories,
             wine_options=wine_options,
+            app_id=app_id,
+            compat_data_path=compat_data_path,
         )
 
         try:

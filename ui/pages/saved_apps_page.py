@@ -1,311 +1,44 @@
 # -*- coding: utf-8 -*-
-"""
-Saved applications page for Beer
-"""
+"""Steam-style library page for saved applications."""
 
+import datetime
 import os
 import shlex
+import time
 
+from PyQt6.QtCore import QProcess, QTimer, Qt
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QLineEdit, QScrollArea, QGridLayout, QFrame, QMenu,
-    QMessageBox, QFileDialog, QDialog, QDialogButtonBox, QComboBox,
-    QProgressDialog
+    QDialog, QFileDialog, QHBoxLayout, QMenu, QMessageBox,
+    QProgressDialog, QStackedWidget, QWidget,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QPixmap
 
-from core.app_icon import get_app_icon
 from core.desktop_generator import (
-    DesktopGenerator, sanitize_filename, get_default_icon_path,
+    DesktopGenerator,
+    get_default_icon_path,
+    sanitize_filename,
 )
-from core.winetricks_manager import prefix_for_name
+from core.desktop_importer import parse_desktop_file
+from core.icon_extractor import IconExtractor
+from core.runtime_utils import (
+    app_prefix_info,
+    detect_runtime,
+    ensure_app_prefix_fields,
+)
+from ui.dialogs.common_dialogs import RuntimeSelectDialog, SimpleInputDialog
 from ui.dialogs.desktop_dialog import DesktopEntryDialog
-from ui.dialogs.winetricks_dialog import WinetricksDialog
 from ui.icon_extract_task import IconExtractTask
-
-
-class SimpleInputDialog(QDialog):
-    """A minimal dialog with only a title and a text input field"""
-
-    def __init__(self, title='', default_text='', parent=None):
-        super().__init__(parent)
-        self.setWindowTitle(title)
-        self.setMinimumWidth(300)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-
-        self.input_field = QLineEdit(default_text)
-        self.input_field.selectAll()
-        layout.addWidget(self.input_field)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-    def get_text(self):
-        return self.input_field.text()
-
-
-class EditableLabel(QLabel):
-    """A label that becomes editable on double-click"""
-    text_changed = pyqtSignal(str)
-
-    def __init__(self, text='', dialog_title='', parent=None):
-        super().__init__(text, parent)
-        self._editing = False
-        self._dialog_title = dialog_title
-
-    def mouseDoubleClickEvent(self, event):
-        if self._editing:
-            return
-        self._editing = True
-        current_text = self.text()
-        dialog = SimpleInputDialog(self._dialog_title, current_text, self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            new_text = dialog.get_text()
-            if new_text.strip():
-                self.setText(new_text.strip())
-                self.text_changed.emit(new_text.strip())
-        self._editing = False
-
-
-class ProtonSelectionDialog(QDialog):
-    """Dialog to select a Proton version from a combo box, with browse option"""
-
-    def __init__(self, current_path, proton_versions, translator, parent=None):
-        super().__init__(parent)
-        self.translator = translator
-        self._browse_path = ''
-        self.setWindowTitle(translator('select_runtime'))
-        self.setMinimumWidth(360)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-
-        self.combo = QComboBox()
-        for proton in proton_versions:
-            self.combo.addItem(proton.get('name', proton.get('path', '')), proton.get('path', ''))
-
-        # Browse option
-        self.combo.addItem(translator('browse') + '...', '__browse__')
-
-        # Set current
-        if current_path:
-            index = self.combo.findData(current_path)
-            if index >= 0:
-                self.combo.setCurrentIndex(index)
-            else:
-                # Add current path as a custom item at the top
-                self.combo.insertItem(0, os.path.basename(current_path), current_path)
-                self.combo.setCurrentIndex(0)
-
-        layout.addWidget(self.combo)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self._on_accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-    def _on_accept(self):
-        if self.combo.currentData() == '__browse__':
-            directory = QFileDialog.getExistingDirectory(
-                self, self.translator('select_proton')
-            )
-            if directory:
-                self._browse_path = directory
-                self.accept()
-            # Otherwise keep dialog open
-        else:
-            self.accept()
-
-    def get_proton_path(self):
-        if self.combo.currentData() == '__browse__':
-            return self._browse_path
-        return self.combo.currentData()
-
-
-class EditableProtonLabel(QLabel):
-    """A label showing the Proton layer; double-click opens a selection dialog"""
-    proton_changed = pyqtSignal(str)
-
-    def __init__(self, proton_path='', proton_versions=None, translator=None, parent=None):
-        super().__init__(parent)
-        self.translator = translator
-        self._proton_path = proton_path
-        self._proton_versions = proton_versions or []
-        self._editing = False
-        self._update_text()
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setWordWrap(True)
-        self.setStyleSheet(
-            "QLabel {"
-            " background-color: #2b2b2b;"
-            " border: 1px solid #555555;"
-            " border-radius: 4px;"
-            " padding: 4px 6px;"
-            " color: #4a86c8;"
-            " font-size: 10px;"
-            " }"
-        )
-
-    def _update_text(self):
-        not_set = self.translator('not_set') if self.translator else 'Not set'
-        if self._proton_path:
-            name = os.path.basename(self._proton_path)
-            label = self.translator('runtime_short') if self.translator else 'Runtime'
-            self.setText(f"{label}: {name}")
-        else:
-            label = self.translator('runtime_short') if self.translator else 'Runtime'
-            self.setText(f"{label}: {not_set}")
-
-    def set_proton_path(self, path):
-        self._proton_path = path
-        self._update_text()
-
-    def mouseDoubleClickEvent(self, event):
-        if self._editing:
-            return
-        self._editing = True
-        dialog = ProtonSelectionDialog(
-            self._proton_path, self._proton_versions, self.translator, self
-        )
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            new_path = dialog.get_proton_path()
-            if new_path:
-                self._proton_path = new_path
-                self._update_text()
-                self.proton_changed.emit(new_path)
-        self._editing = False
-
-
-class AppCard(QFrame):
-    """Application card widget"""
-
-    def __init__(self, app, translator, proton_versions=None, parent=None):
-        super().__init__(parent)
-        self.app = app
-        self.translator = translator
-        self._proton_versions = proton_versions or []
-        self._init_ui()
-
-    def _init_ui(self):
-        self.setFrameShape(QFrame.Shape.StyledPanel)
-        self.setStyleSheet("""
-            QFrame {
-                background-color: #3c3f41;
-                border: 1px solid #555555;
-                border-radius: 8px;
-                padding: 10px;
-            }
-            QFrame:hover {
-                background-color: #4c4f51;
-                border: 1px solid #4a86c8;
-            }
-        """)
-        self.setFixedSize(180, 250)
-
-        layout = QVBoxLayout(self)
-        layout.setSpacing(5)
-
-        # Icon (double-click to launch)
-        self.icon_label = QLabel()
-        self.icon_label.setFixedSize(64, 64)
-        self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.icon_label.setScaledContents(False)
-        self.icon_label.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.icon_label.setToolTip(self.translator('double_click_launch'))
-
-        # Load EXE icon
-        exe_path = self.app.get('exe_path', '')
-        icon_path = self.app.get('icon_path', '')
-        self._load_icon(exe_path, icon_path)
-
-        layout.addWidget(self.icon_label, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        # Name (editable)
-        self.name_label = EditableLabel(self.app.get('name', 'Unknown'), self.translator('edit_name'))
-        self.name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.name_label.setStyleSheet("font-weight: bold; font-size: 12px; color: #ffffff;")
-        self.name_label.setWordWrap(True)
-        self.name_label.setCursor(Qt.CursorShape.PointingHandCursor)
-        layout.addWidget(self.name_label)
-
-        # Description (editable)
-        if exe_path:
-            desc_text = self.app.get('description', '') or os.path.basename(exe_path)
-        else:
-            desc_text = self.app.get('description', '') or ''
-        self.desc_label = EditableLabel(desc_text, self.translator('edit_desc'))
-        self.desc_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.desc_label.setStyleSheet("color: #aaaaaa; font-size: 10px;")
-        self.desc_label.setWordWrap(True)
-        self.desc_label.setCursor(Qt.CursorShape.PointingHandCursor)
-        layout.addWidget(self.desc_label)
-
-        # Proton layer (editable on double-click)
-        self.proton_label = EditableProtonLabel(
-            proton_path=self.app.get('proton_path', ''),
-            proton_versions=self._proton_versions,
-            translator=self.translator,
-            parent=self
-        )
-        layout.addWidget(self.proton_label)
-
-        layout.addStretch()
-
-        # Context menu
-        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-
-    def _load_icon(self, exe_path, icon_path):
-        """Load icon from icon_path or extract from exe_path"""
-        max_size = 56  # Leave some padding inside the 64x64 label
-
-        # Try saved icon path first
-        if icon_path and os.path.exists(icon_path):
-            pixmap = QPixmap(icon_path)
-            if not pixmap.isNull():
-                scaled = pixmap.scaled(max_size, max_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-                self.icon_label.setPixmap(scaled)
-                return
-
-        # Try to extract from EXE (uses persistent cache)
-        if exe_path and os.path.exists(exe_path):
-            from core.icon_extractor import IconExtractor
-            # Use the shared parent page's extractor if available (cached)
-            parent_page = self.parent()
-            while parent_page and not isinstance(parent_page, SavedAppsPage):
-                parent_page = parent_page.parent()
-            extractor = getattr(parent_page, '_icon_extractor', None) if parent_page else None
-            if extractor is None:
-                extractor = IconExtractor()
-            if extractor.is_tool_available():
-                temp_icon, error = extractor.extract_icon(exe_path)
-                if temp_icon and os.path.exists(temp_icon):
-                    pixmap = QPixmap(temp_icon)
-                    if not pixmap.isNull():
-                        scaled = pixmap.scaled(max_size, max_size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-                        self.icon_label.setPixmap(scaled)
-                        return
-
-        # Fallback: beer emoji icon
-        pixmap = get_app_icon().pixmap(max_size, max_size)
-        if not pixmap.isNull():
-            self.icon_label.setPixmap(pixmap)
-        else:
-            self.icon_label.setText("🍺")
-            self.icon_label.setStyleSheet("font-size: 32px; color: #ffffff;")
+from ui.pages.app_detail_view import AppDetailView
+from ui.pages.app_helpers import (
+    app_category_keys,
+    app_runtime_label,
+    prepare_app_prefix,
+)
+from ui.pages.app_sidebar import AppSidebar, CategoryPanel
+from ui.pages.shelf_view import ShelfView
 
 
 class SavedAppsPage(QWidget):
-    """Saved applications page widget"""
+    """Library page with shelves, category filters and an app detail view."""
 
     def __init__(self, config, translator, main_window):
         super().__init__()
@@ -314,211 +47,548 @@ class SavedAppsPage(QWidget):
         self.main_window = main_window
 
         self.apps = []
-        self.filtered_apps = []
+        self._search_text = ''
+        self._categories = set()
+        self._current_app_name = ''
+        self._sort_mode = self.config.get('sort_mode', 'name')
         self._icon_tasks = []
+        self._native_processes = []
 
-        # Shared icon extractor (cached tool checks)
-        from core.icon_extractor import IconExtractor
+        # Debounce search so typing does not rebuild every card immediately.
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(180)
+        self._search_timer.timeout.connect(self._refresh_all)
+
         self._icon_extractor = IconExtractor(
-            icons_dir=config.get_icons_dir() if hasattr(config, 'get_icons_dir') else None
+            icons_dir=self.config.get_icons_dir()
+            if hasattr(self.config, 'get_icons_dir') else None
         )
 
-        self.init_ui()
+        self._build_ui()
+        self._connect_signals()
         self.load_apps()
 
-    def init_ui(self):
-        """Initialize UI"""
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
+    # ------------------------------------------------------------------
+    # UI
+    # ------------------------------------------------------------------
+    def _build_ui(self):
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        # Header
-        header_layout = QHBoxLayout()
+        self.sidebar = AppSidebar(self.translator)
+        layout.addWidget(self.sidebar)
 
-        self.title = QLabel(self.translator('saved_apps'))
-        self.title.setStyleSheet("font-size: 18px; font-weight: bold;")
-        header_layout.addWidget(self.title)
+        self.category_panel = CategoryPanel(self.translator)
+        self.category_panel.hide()
+        layout.addWidget(self.category_panel)
 
-        header_layout.addStretch()
+        self.stack = QStackedWidget()
+        self._create_stack_pages()
+        layout.addWidget(self.stack, 1)
 
-        # Search box
-        self.search_box = QLineEdit()
-        self.search_box.setPlaceholderText(self.translator('search'))
-        self.search_box.setFixedWidth(200)
-        self.search_box.textChanged.connect(self.filter_apps)
-        header_layout.addWidget(self.search_box)
+        self.sidebar_menu = QMenu(self)
+        self.sidebar_menu.addAction(
+            self.translator('import'), self.import_apps
+        )
+        self.sidebar_menu.addAction(
+            self.translator('export'), self.export_apps
+        )
+        self.sidebar.menu_button.setMenu(self.sidebar_menu)
 
-        # Import button
-        self.btn_import = QPushButton(self.translator('import'))
-        self.btn_import.clicked.connect(self.import_apps)
-        header_layout.addWidget(self.btn_import)
+    def _create_stack_pages(self):
+        self.shelf_view = ShelfView(self)
+        self.detail_view = AppDetailView(self)
+        self.stack.addWidget(self.shelf_view)
+        self.stack.addWidget(self.detail_view)
+        self.stack.setCurrentWidget(self.shelf_view)
 
-        # Export button
-        self.btn_export = QPushButton(self.translator('export'))
-        self.btn_export.clicked.connect(self.export_apps)
-        header_layout.addWidget(self.btn_export)
+    def _connect_signals(self):
+        self.sidebar.shelf_requested.connect(self.show_shelf)
+        self.sidebar.search_changed.connect(self._on_search_changed)
+        self.sidebar.filter_toggled.connect(self._on_filter_toggled)
+        self.sidebar.app_activated.connect(self._open_app_by_name)
+        self.sidebar.app_context_requested.connect(self._open_program_list_menu)
+        self.sidebar.create_requested.connect(self._create_on_main_page)
+        self.sidebar.import_desktop_requested.connect(self.import_desktop_file)
+        self.category_panel.filter_changed.connect(self._on_category_filter)
+        self.category_panel.sort_changed.connect(self._on_sort_changed)
+        self.category_panel.set_sort_mode(self._sort_mode)
 
-        layout.addLayout(header_layout)
+        log_signal = getattr(self.main_window, 'log_emitted', None)
+        if log_signal is not None:
+            log_signal.connect(self._on_log)
 
-        # Description
-        self.desc = QLabel(self.translator('saved_apps_desc'))
-        self.desc.setStyleSheet("color: gray; font-size: 11px;")
-        layout.addWidget(self.desc)
+    def _on_log(self, message, level='info'):
+        if hasattr(self, 'detail_view'):
+            self.detail_view.append_log(message, level)
 
-        # Scroll area for grid
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-
-        # Grid widget
-        self.grid_widget = QWidget()
-        self.grid_layout = QGridLayout(self.grid_widget)
-        self.grid_layout.setSpacing(15)
-        self.grid_layout.setContentsMargins(10, 10, 10, 10)
-
-        scroll.setWidget(self.grid_widget)
-        layout.addWidget(scroll)
-
-        # Empty label
-        self.empty_label = QLabel(self.translator('no_saved_apps'))
-        self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.empty_label.setStyleSheet("color: gray; font-size: 14px; padding: 50px;")
-        self.empty_label.hide()
-        layout.addWidget(self.empty_label)
-
+    # ------------------------------------------------------------------
+    # Data
+    # ------------------------------------------------------------------
     def load_apps(self):
-        """Load saved applications"""
+        """Reload applications from disk and refresh every view."""
         self.apps = self.config.get_apps()
-        self.filtered_apps = self.apps
-        self.refresh_grid()
+        self._refresh_all()
 
-    def refresh_grid(self):
-        """Refresh the grid view"""
-        # Clear grid
-        while self.grid_layout.count():
-            item = self.grid_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+    def _refresh_all(self):
+        filtered = self._filtered_apps()
+        self.sidebar.set_apps(filtered)
+        self.category_panel.set_apps(self.apps)
+        self.shelf_view.set_data(self.config.get_shelves(), filtered)
 
-        # Show empty label if no apps
-        if not self.filtered_apps:
-            self.empty_label.show()
-            self.grid_widget.hide()
+        if self._current_app_name:
+            self.sidebar.select_app(self._current_app_name)
+
+    def _filtered_apps(self):
+        search = self._search_text.strip().lower()
+        result = []
+        runtimes = self.get_runtimes()
+        for app in self.apps:
+            if self._categories:
+                if not (app_category_keys(app) & self._categories):
+                    continue
+            if search:
+                haystack = ' '.join([
+                    app.get('name', ''),
+                    app.get('description', ''),
+                    app.get('exe_path', ''),
+                    app.get('exec_cmd', ''),
+                    app_runtime_label(app, self.translator, runtimes),
+                ]).lower()
+                if search not in haystack:
+                    continue
+            result.append(app)
+
+        if self._sort_mode == 'runtime':
+            result.sort(
+                key=lambda app: int(app.get('total_runtime', 0) or 0),
+                reverse=True,
+            )
+        elif self._sort_mode == 'import':
+            result.sort(
+                key=lambda app: app.get('created_at', '') or '',
+                reverse=True,
+            )
+        else:
+            result.sort(key=lambda app: app.get('name', '').casefold())
+        return result
+
+    def _find_app(self, name):
+        for app in self.apps:
+            if app.get('name') == name:
+                return app
+        return None
+
+    def get_runtimes(self):
+        manager = getattr(self.main_window.main_page, 'proton_manager', None)
+        return manager.get_runtimes() if manager else []
+
+    # ------------------------------------------------------------------
+    # Navigation
+    # ------------------------------------------------------------------
+    def show_shelf(self):
+        self._current_app_name = ''
+        if hasattr(self, 'detail_view'):
+            self.detail_view.hero.set_edit_mode(None)
+        self._refresh_all()
+        self.stack.setCurrentWidget(self.shelf_view)
+        self.sidebar.select_app('')
+
+    def open_detail(self, app):
+        if app is None:
+            return
+        self._current_app_name = app.get('name', '')
+        self.detail_view.set_app(app)
+        self.stack.setCurrentWidget(self.detail_view)
+        self.sidebar.select_app(self._current_app_name)
+
+    def _open_app_by_name(self, name):
+        app = self._find_app(name)
+        if app is not None:
+            self.open_detail(app)
+
+    def _on_search_changed(self, text):
+        self._search_text = text or ''
+        self._search_timer.start()
+
+    def _on_filter_toggled(self, checked):
+        self.category_panel.setVisible(bool(checked))
+
+    def _on_category_filter(self, categories):
+        self._categories = set(categories or ())
+        self._refresh_all()
+
+    def _on_sort_changed(self, mode):
+        self._sort_mode = mode or 'name'
+        self.config.set('sort_mode', self._sort_mode)
+        self._refresh_all()
+
+    # ------------------------------------------------------------------
+    # Editing
+    # ------------------------------------------------------------------
+    def update_app_field(self, app, key, value, refresh=True):
+        """Persist a single field and optionally refresh the views."""
+        app[key] = value
+        self.config._save_apps()
+        if refresh:
+            self._refresh_all()
+            if self.detail_view.app is app:
+                if key == 'name':
+                    self.detail_view.txt_name.setText(value)
+                    self.detail_view.hero.update()
+                self.detail_view.update_stats()
+
+    def rename_app(self, app, new_name):
+        """Rename an application, ensuring the name stays unique."""
+        new_name = (new_name or '').strip()
+        if not new_name:
+            return False
+        if new_name == app.get('name'):
+            return True
+        for other in self.apps:
+            if other is not app and other.get('name') == new_name:
+                QMessageBox.warning(
+                    self, self.translator('warning'),
+                    self.translator('name_exists')
+                )
+                return False
+
+        old_name = app.get('name', '')
+        app['name'] = new_name
+        self.config._save_apps()
+        if self._current_app_name == old_name:
+            self._current_app_name = new_name
+        self._refresh_all()
+        if self.detail_view.app is app:
+            self.detail_view.hero.update()
+            self.detail_view.txt_name.setText(new_name)
+        self.main_window.log_message(
+            f"Renamed: {old_name} -> {new_name}", 'info'
+        )
+        return True
+
+    def rename_app_dialog(self, app):
+        dialog = SimpleInputDialog(
+            self.translator('edit_name'), app.get('name', ''),
+            self.translator, self,
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.rename_app(app, dialog.get_text())
+
+    def edit_description(self, app):
+        dialog = SimpleInputDialog(
+            self.translator('edit_desc'), app.get('description', ''),
+            self.translator, self,
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.update_app_field(app, 'description', dialog.get_text().strip())
+
+    def change_runtime(self, app):
+        dialog = RuntimeSelectDialog(
+            app.get('proton_path', ''), self.get_runtimes(),
+            self.translator, self,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        path = dialog.get_runtime_path()
+        if not path:
             return
 
-        self.empty_label.hide()
-        self.grid_widget.show()
-
-        # Add apps to grid
-        cols = 4
-        for i, app in enumerate(self.filtered_apps):
-            card = self._create_app_card(app)
-            row = i // cols
-            col = i % cols
-            self.grid_layout.addWidget(card, row, col)
-
-    def _create_app_card(self, app):
-        """Create an application card"""
-        runtime_versions = []
-        try:
-            mp = self.main_window.main_page
-            if mp and mp.proton_manager:
-                runtime_versions = mp.proton_manager.get_runtimes()
-        except Exception:
-            pass
-
-        card = AppCard(app, self.translator, runtime_versions, self)
-
-        # Double-click icon to launch
-        card.icon_label.mouseDoubleClickEvent = lambda e, a=app: self.launch_app(a)
-
-        # Name changed
-        card.name_label.text_changed.connect(
-            lambda new_name, a=app, c=card: self._on_name_changed(a, new_name, c)
-        )
-
-        # Description changed
-        card.desc_label.text_changed.connect(lambda new_desc, a=app: self._on_desc_changed(a, new_desc))
-
-        # Proton/Wine runtime changed
-        card.proton_label.proton_changed.connect(lambda new_path, a=app: self._on_proton_changed(a, new_path))
-
-        # Context menu
-        card.customContextMenuRequested.connect(lambda pos, a=app, c=card: self.show_context_menu(pos, a, c))
-
-        return card
-
-    def _on_proton_changed(self, app, new_path):
-        """Handle Proton/Wine runtime change."""
-        from core.runtime_utils import detect_runtime
-
-        runtime = detect_runtime(new_path)
+        runtime = detect_runtime(path)
         if runtime is None:
             QMessageBox.warning(
-                self,
-                self.translator('warning'),
+                self, self.translator('warning'),
                 self.translator('runtime_invalid')
             )
             return
 
-        # Only remember paths that are not already found by the automatic scan.
-        main_page = getattr(self.main_window, 'main_page', None)
-        known_paths = []
-        if main_page and main_page.proton_manager:
-            known_paths = [
-                item.get('path', '') for item in main_page.proton_manager.get_runtimes()
-            ]
-        custom_paths = list(self.config.get('custom_proton_paths', []))
-        if runtime.get('path') not in known_paths and runtime.get('path') not in custom_paths:
-            custom_paths.append(runtime.get('path'))
-            self.config.set('custom_proton_paths', custom_paths)
-
-        app['proton_path'] = new_path
+        self._remember_custom_path(runtime.get('path', ''))
+        app['native'] = False
+        app['proton_path'] = path
+        app['runtime_type'] = runtime.get('type', '')
+        ensure_app_prefix_fields(self.config, app)
         self.config._save_apps()
-
-        if main_page and main_page.proton_manager:
-            main_page.load_proton_versions()
-            main_page.select_runtime_path(new_path)
-
+        self._refresh_all()
+        if self.detail_view.app is app:
+            self.detail_view.set_app(app)
         self.main_window.log_message(
-            f"Runtime updated for {app.get('name', '')}: {new_path}", 'info'
+            f"Runtime updated for {app.get('name', '')}: {path}", 'info'
         )
 
-    def _on_name_changed(self, app, new_name, card=None):
-        """Handle name change"""
-        old_name = app.get('name', '')
-        # Check for duplicate
-        for other in self.apps:
-            if other.get('name') == new_name and other is not app:
+    def _remember_custom_path(self, path):
+        if not path:
+            return
+        known = {
+            os.path.realpath(item.get('path', ''))
+            for item in self.get_runtimes()
+        }
+        custom_paths = list(self.config.get('custom_proton_paths', []))
+        real = os.path.realpath(path)
+        if real in known or any(os.path.realpath(p) == real for p in custom_paths):
+            return
+        custom_paths.append(path)
+        self.config.set('custom_proton_paths', custom_paths)
+        main_page = getattr(self.main_window, 'main_page', None)
+        if main_page and main_page.proton_manager:
+            main_page.load_proton_versions()
+
+    # ------------------------------------------------------------------
+    # Shelves
+    # ------------------------------------------------------------------
+    def create_shelf(self):
+        dialog = SimpleInputDialog(
+            self.translator('add_shelf'), '', self.translator, self
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            name = dialog.get_text().strip()
+            if name:
+                self.config.add_shelf(name)
+                self._refresh_all()
+
+    def rename_shelf(self, shelf):
+        dialog = SimpleInputDialog(
+            self.translator('shelf_rename'),
+            shelf.get('name', ''),
+            self.translator,
+            self,
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            name = dialog.get_text().strip()
+            if name:
+                self.config.rename_shelf(shelf.get('id'), name)
+                self._refresh_all()
+
+    def move_shelf(self, shelf, delta):
+        if self.config.move_shelf(shelf.get('id'), delta):
+            self._refresh_all()
+
+    def delete_shelf(self, shelf):
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle(self.translator('warning'))
+        box.setText(self.translator('shelf_delete_msg').format(
+            name=shelf.get('name', '')
+        ))
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        box.button(QMessageBox.StandardButton.Yes).setText(self.translator('yes'))
+        box.button(QMessageBox.StandardButton.No).setText(self.translator('no'))
+        if box.exec() == QMessageBox.StandardButton.Yes:
+            self.config.delete_shelf(shelf.get('id'))
+            self._refresh_all()
+
+    def set_shelf_collapsed(self, shelf, collapsed):
+        """Persist the collapsed state of a shelf."""
+        shelf_id = shelf.get('id')
+        if not shelf_id:
+            return
+        shelf['collapsed'] = bool(collapsed)
+        shelves = self.config.get_shelves()
+        for item in shelves:
+            if item.get('id') == shelf_id:
+                item['collapsed'] = bool(collapsed)
+                break
+        self.config.save_shelves(shelves)
+
+    def assign_apps_to_shelf(self, names, shelf_id):
+        if not shelf_id:
+            return
+        names = set(names or [])
+        changed = False
+        for app in self.apps:
+            if app.get('name') not in names:
+                continue
+            memberships = list(app.get('shelves') or [])
+            if shelf_id not in memberships:
+                memberships.append(shelf_id)
+                app['shelves'] = memberships
+                changed = True
+        if changed:
+            self.config._save_apps()
+            self._refresh_all()
+
+    # ------------------------------------------------------------------
+    # Add / import
+    # ------------------------------------------------------------------
+    def _create_on_main_page(self):
+        self.main_window.show_page(0)
+
+    def import_desktop_file(self):
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, self.translator('import_desktop'),
+            os.path.expanduser('~/.local/share/applications'),
+            'Desktop Entry (*.desktop);;All Files (*)',
+        )
+        if not paths:
+            return
+
+        imported = []
+        failures = []
+        for path in paths:
+            try:
+                app = parse_desktop_file(path)
+                if not isinstance(app, dict):
+                    raise ValueError('Invalid desktop entry')
+            except Exception as exc:
+                failures.append((os.path.basename(path), str(exc)))
+                continue
+            app['name'] = self._unique_name(app.get('name', 'Imported'))
+            self.config.save_app(app)
+            self.apps = self.config.get_apps()
+            imported.append(app)
+            self.main_window.log_message(
+                self.translator('desktop_import_success').format(
+                    name=app.get('name', '')
+                ),
+                'success',
+            )
+
+        for filename, error in failures:
+            self.main_window.log_message(
+                self.translator('desktop_import_failed').format(
+                    error=f'{filename}: {error}'
+                ),
+                'error',
+            )
+
+        self.load_apps()
+        if len(imported) == 1 and not failures:
+            self.open_detail(imported[0])
+            return
+
+        if failures:
+            message = self.translator(
+                'desktop_import_failed_count'
+            ).format(count=len(failures))
+            if imported:
+                message += '\n' + self.translator(
+                    'desktop_import_count'
+                ).format(count=len(imported))
+            QMessageBox.warning(
+                self, self.translator('warning'), message
+            )
+        elif imported:
+            QMessageBox.information(
+                self, self.translator('success'),
+                self.translator('desktop_import_count').format(
+                    count=len(imported)
+                ),
+            )
+
+    def _unique_name(self, base):
+        return self.config.unique_app_name(base or 'Imported')
+
+    def import_apps(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, self.translator('import'), '',
+            'JSON Files (*.json);;All Files (*)',
+        )
+        if file_path:
+            if self.config.import_apps(file_path):
+                self.load_apps()
+                self.main_window.log_message('Applications imported', 'success')
+            else:
                 QMessageBox.warning(
-                    self,
-                    self.translator('warning'),
-                    self.translator('name_exists')
+                    self, self.translator('error'),
+                    'Failed to import applications'
                 )
-                # Revert both the data and the visible label.
-                app['name'] = old_name
-                if card is not None:
-                    card.name_label.setText(old_name)
-                return
 
-        app['name'] = new_name
-        self.config._save_apps()
-        self.main_window.log_message(f"Renamed: {old_name} -> {new_name}", 'info')
+    def export_apps(self):
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, self.translator('export'), '',
+            'JSON Files (*.json);;All Files (*)',
+        )
+        if file_path:
+            if self.config.export_apps(file_path):
+                self.main_window.log_message('Applications exported', 'success')
+            else:
+                QMessageBox.warning(
+                    self, self.translator('error'),
+                    'Failed to export applications'
+                )
 
-    def _on_desc_changed(self, app, new_desc):
-        """Handle description change"""
-        app['description'] = new_desc
-        self.config._save_apps()
-
+    # ------------------------------------------------------------------
+    # Launching
+    # ------------------------------------------------------------------
     def launch_app(self, app):
-        """Launch an application"""
-        exe_path = app.get('exe_path')
-        working_dir = app.get('run_directory')
-        runtime_path = app.get('proton_path', '')
+        """Launch a saved application and track its runtime."""
+        if app is None:
+            return
+        if app.get('native'):
+            self._launch_native(app)
+        else:
+            self._launch_windows(app)
 
+    def _launch_native(self, app):
+        command = app.get('exec_cmd') or app.get('exe_path', '')
+        try:
+            argv = shlex.split(command)
+        except ValueError:
+            argv = [command]
+        if not argv:
+            QMessageBox.warning(
+                self, self.translator('error'),
+                self.translator('file_not_found')
+            )
+            return
+
+        working_dir = app.get('run_directory', '') or os.path.dirname(argv[0])
+        process = QProcess(self)
+        if working_dir and os.path.isdir(working_dir):
+            process.setWorkingDirectory(working_dir)
+
+        def on_output(is_stderr):
+            data = (
+                process.readAllStandardError() if is_stderr
+                else process.readAllStandardOutput()
+            )
+            text = bytes(data).decode('utf-8', errors='replace')
+            if text:
+                self.main_window.log_message(text, 'proton' if is_stderr else 'info')
+
+        process.readyReadStandardOutput.connect(lambda: on_output(False))
+        process.readyReadStandardError.connect(lambda: on_output(True))
+
+        started = time.time()
+        process.finished.connect(
+            lambda code, status, a=app, s=started, p=process:
+            self._finish_native(a, s, code, p)
+        )
+        self._native_processes.append(process)
+        process.start(argv[0], argv[1:])
+        if not process.waitForStarted(5000):
+            self._native_processes.remove(process)
+            process.deleteLater()
+            QMessageBox.warning(
+                self, self.translator('error'),
+                self.translator('launch_failed')
+            )
+            return
+
+        self._mark_launch(app)
+        self.main_window.log_message(
+            '{}: {}'.format(self.translator('launching'), app.get('name', '')),
+            'info',
+        )
+
+    def _finish_native(self, app, started, exit_code, process):
+        if process in self._native_processes:
+            self._native_processes.remove(process)
+        process.deleteLater()
+        self._record_runtime(app, started)
+        self.main_window.log_message(
+            '{}: {}'.format(self.translator('process_ended'), exit_code),
+            'success' if exit_code == 0 else 'error',
+        )
+
+    def _launch_windows(self, app):
+        exe_path = app.get('exe_path', '')
         if not exe_path or not os.path.exists(exe_path):
             QMessageBox.warning(
-                self,
-                self.translator('error'),
+                self, self.translator('error'),
                 self.translator('exe_not_found')
             )
             return
@@ -526,117 +596,232 @@ class SavedAppsPage(QWidget):
         manager = getattr(self.main_window.main_page, 'proton_manager', None)
         if manager is None:
             QMessageBox.warning(
-                self,
-                self.translator('error'),
+                self, self.translator('error'),
                 self.translator('runtime_missing')
             )
             return
 
+        runtime_path = app.get('proton_path', '')
         runtime = manager.get_runtime_by_path(runtime_path)
         if runtime is None:
-            runtime = manager.get_runtimes()[0] if manager.get_runtimes() else None
+            runtimes = manager.get_runtimes()
+            runtime = runtimes[0] if runtimes else None
         if runtime is None:
             QMessageBox.warning(
-                self,
-                self.translator('error'),
+                self, self.translator('error'),
                 self.translator('runtime_select_first')
             )
             return
 
+        prepared = prepare_app_prefix(
+            self, self.config, app, self.translator
+        )
+        if prepared is None:
+            return
+        prefix_type, prefix_path = prepared
+
         env_vars = self.config.get('environment_variables', {})
         more_options = app.get('more_options', {}) or {}
         args_text = more_options.get('startup_args', '') or ''
-        args = shlex.split(args_text) if args_text.strip() else None
-        wine_options = more_options.get('wine_options', {}) or {}
+        try:
+            args = shlex.split(args_text) if args_text.strip() else None
+        except ValueError:
+            args = args_text.split()
+        wine_options = dict(more_options.get('wine_options', {}) or {})
+        compat_data_path = None
+        if prefix_type == 'proton':
+            compat_data_path = prefix_path
+        elif prefix_type == 'wine' and not wine_options.get('prefix'):
+            wine_options['prefix'] = prefix_path
 
         if self.config.get('show_log_on_start', False):
             self.main_window.show_log()
 
         success, result = manager.launch_program(
-            runtime.get('path', ''), exe_path, working_dir, env_vars, args,
+            runtime.get('path', ''), exe_path,
+            app.get('run_directory', '') or os.path.dirname(exe_path),
+            env_vars, args,
             output_callback=self.main_window.log_message,
             wine_options=wine_options,
             architecture=app.get('architecture', 'auto'),
+            compat_data_path=compat_data_path,
         )
 
-        if success:
-            self.main_window.log_message(f"Launched: {app.get('name')}", 'success')
-        else:
-            self.main_window.log_message(f"Failed to launch: {result}", 'error')
-
-    def show_context_menu(self, pos, app, card):
-        """Show context menu for app card"""
-        menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: #2b2b2b;
-                color: #ffffff;
-                border: 1px solid #555555;
-            }
-            QMenu::item {
-                padding: 8px 20px;
-            }
-            QMenu::item:selected {
-                background-color: #4a86c8;
-            }
-        """)
-
-        launch_action = QAction(self.translator('run'), self)
-        launch_action.triggered.connect(lambda: self.launch_app(app))
-        menu.addAction(launch_action)
-
-        # Add desktop shortcut
-        shortcut_action = QAction(self.translator('add_shortcut'), self)
-        shortcut_action.triggered.connect(lambda: self.add_desktop_shortcut(app))
-        menu.addAction(shortcut_action)
-
-        winetricks_action = QAction(self.translator('open_winetricks'), self)
-        winetricks_action.triggered.connect(lambda: self.open_winetricks(app))
-        menu.addAction(winetricks_action)
-
-        menu.addSeparator()
-
-        edit_action = QAction(self.translator('edit'), self)
-        edit_action.triggered.connect(lambda: self.edit_app(app))
-        menu.addAction(edit_action)
-
-        delete_action = QAction(self.translator('delete'), self)
-        delete_action.triggered.connect(lambda: self.delete_app(app))
-        menu.addAction(delete_action)
-
-        menu.exec(card.mapToGlobal(pos))
-
-    def open_winetricks(self, app):
-        """Open Winetricks for a saved application."""
-        manager = getattr(self.main_window.main_page, 'proton_manager', None)
-        if manager is None or not manager.get_runtimes():
-            QMessageBox.warning(
-                self, self.translator('warning'),
-                self.translator('runtime_select_first')
+        if not success:
+            self.main_window.log_message(
+                '{}: {}'.format(self.translator('launch_failed'), result),
+                'error',
             )
             return
 
-        prefix = prefix_for_name(self.config, app.get('name', 'default'))
-        dialog = WinetricksDialog(
-            self.translator,
-            runtimes=manager.get_runtimes(),
-            config=self.config,
-            parent=self,
-            app_name=app.get('name', ''),
-            runtime_path=app.get('proton_path', ''),
-            prefix=prefix,
+        started = time.time()
+        result.finished.connect(
+            lambda code, status, a=app, s=started: self._record_runtime(a, s)
         )
-        dialog.exec()
+        self._mark_launch(app)
+        self.main_window.log_message(
+            '{}: {}'.format(self.translator('launching'), app.get('name', '')),
+            'info',
+        )
+
+    def _mark_launch(self, app):
+        app['last_launched'] = datetime.datetime.now().isoformat(
+            timespec='seconds'
+        )
+        self.config._save_apps()
+        # Keep shelf cards and the sidebar in sync immediately.
+        self._refresh_all()
+        if self.detail_view.app is app:
+            self.detail_view.update_stats()
+
+    def _record_runtime(self, app, started):
+        elapsed = max(0, int(time.time() - started))
+        app['total_runtime'] = int(app.get('total_runtime', 0) or 0) + elapsed
+        self.config._save_apps()
+        # Update the visible "Played" label without leaving the page.
+        self._refresh_all()
+        if self.detail_view.app is app:
+            self.detail_view.update_stats()
+
+    def stop_native_processes(self):
+        """Terminate all running native Linux applications."""
+        stopped = 0
+        for process in list(self._native_processes):
+            try:
+                if process.state() == QProcess.ProcessState.NotRunning:
+                    continue
+                process.terminate()
+                if not process.waitForFinished(1500):
+                    process.kill()
+                    process.waitForFinished(1000)
+                stopped += 1
+            except Exception:
+                continue
+        return stopped
+
+    # ------------------------------------------------------------------
+    # Context menu / shortcuts
+    # ------------------------------------------------------------------
+    def show_context_menu(self, global_pos, app, source_widget, shelf=None):
+        menu = QMenu(self)
+        menu.addAction(
+            self.translator('run'), lambda: self.launch_app(app)
+        )
+        menu.addAction(
+            self.translator('add_shortcut'),
+            lambda: self.add_desktop_shortcut(app),
+        )
+        menu.addAction(
+            self.translator('edit'), lambda: self.open_detail(app)
+        )
+        if shelf and not shelf.get('preset') and shelf.get('id'):
+            menu.addSeparator()
+            menu.addAction(
+                self.translator('shelf_remove_app'),
+                lambda: self.remove_from_shelf(app, shelf.get('id')),
+            )
+        menu.addSeparator()
+        menu.addAction(
+            self.translator('delete'), lambda: self.delete_app(app)
+        )
+        menu.exec(global_pos)
+
+    def _open_program_list_menu(self, app_names, global_pos):
+        if isinstance(app_names, str):
+            app_names = [app_names]
+        apps = [
+            app for app in (self._find_app(name) for name in app_names)
+            if app is not None
+        ]
+        if not apps:
+            return
+        menu = QMenu(self)
+        if len(apps) == 1:
+            app = apps[0]
+            menu.addAction(
+                self.translator('run'), lambda: self.launch_app(app)
+            )
+            menu.addAction(
+                self.translator('edit'), lambda: self.open_detail(app)
+            )
+            menu.addAction(
+                self.translator('add_shortcut'),
+                lambda: self.add_desktop_shortcut(app),
+            )
+            menu.addSeparator()
+            menu.addAction(
+                self.translator('delete'), lambda: self.delete_apps([app])
+            )
+        else:
+            menu.addAction(
+                self.translator('delete_selected').format(count=len(apps)),
+                lambda: self.delete_apps(apps),
+            )
+        menu.exec(global_pos)
+
+    def remove_from_shelf(self, app, shelf_id):
+        """Remove an application from a custom shelf without deleting it."""
+        memberships = list(app.get('shelves') or [])
+        if shelf_id not in memberships:
+            return
+        app['shelves'] = [item for item in memberships if item != shelf_id]
+        self.config._save_apps()
+        self._refresh_all()
+        self.main_window.log_message(
+            self.translator('shelf_app_removed').format(
+                name=app.get('name', '')
+            ),
+            'info',
+        )
+
+    def delete_app(self, app):
+        self.delete_apps([app])
+
+    def delete_apps(self, apps):
+        apps = [app for app in (apps or []) if app is not None]
+        if not apps:
+            return
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle(self.translator('confirm_delete'))
+        if len(apps) == 1:
+            box.setText(self.translator('confirm_delete_msg'))
+        else:
+            box.setText(
+                self.translator('confirm_delete_multi_msg').format(
+                    count=len(apps)
+                )
+            )
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        box.button(QMessageBox.StandardButton.Yes).setText(self.translator('yes'))
+        box.button(QMessageBox.StandardButton.No).setText(self.translator('no'))
+        if box.exec() != QMessageBox.StandardButton.Yes:
+            return
+
+        names = [app.get('name', '') for app in apps]
+        if self._current_app_name in names:
+            self.show_shelf()
+        self.config.delete_apps(names)
+        self.load_apps()
+        if len(apps) == 1:
+            self.main_window.log_message(
+                f"Deleted: {names[0]}", 'info'
+            )
+        else:
+            self.main_window.log_message(
+                self.translator('deleted_count').format(count=len(names)),
+                'info',
+            )
 
     def add_desktop_shortcut(self, app):
-        """Add a desktop shortcut for the app."""
+        """Generate a desktop shortcut, extracting the icon in the background."""
         name = app.get('name', '')
         exe_path = app.get('exe_path', '')
-
         if not name or not exe_path:
             QMessageBox.warning(
-                self,
-                self.translator('warning'),
+                self, self.translator('warning'),
                 self.translator('desktop_name_exe_required')
             )
             return
@@ -645,14 +830,12 @@ class SavedAppsPage(QWidget):
         if icon_path and os.path.exists(icon_path):
             self._open_shortcut_dialog(app, icon_path)
             return
-
         if self._icon_extractor.is_tool_available():
             self._extract_shortcut_icon_async(app)
         else:
             self._open_shortcut_dialog(app, get_default_icon_path())
 
     def _extract_shortcut_icon_async(self, app):
-        """Extract the icon in the background before opening the dialog."""
         progress = QProgressDialog(
             self.translator('extracting_icon'), None, 0, 0, self
         )
@@ -678,8 +861,10 @@ class SavedAppsPage(QWidget):
             task.deleteLater()
             if error:
                 self.main_window.log_message(
-                    f"{self.translator('icon_extraction_failed')}: {error}",
-                    'warning'
+                    '{}: {}'.format(
+                        self.translator('icon_extraction_failed'), error
+                    ),
+                    'warning',
                 )
             self._open_shortcut_dialog(
                 app, icon_path or get_default_icon_path()
@@ -690,20 +875,23 @@ class SavedAppsPage(QWidget):
 
     def _open_shortcut_dialog(self, app, icon_path=''):
         name = app.get('name', '')
-        exe_path = app.get('exe_path', '')
-        working_dir = app.get('run_directory', '')
         description = app.get('description', '')
-
         more_options = app.get('more_options', {}) or {}
         args_text = more_options.get('startup_args', '') or ''
-        manager = getattr(self.main_window.main_page, 'proton_manager', None)
-        runtimes = manager.get_runtimes() if manager else []
+
+        prefix_type, prefix_path, _legacy = app_prefix_info(
+            self.config, app
+        )
+        wine_options = dict(more_options.get('wine_options', {}) or {})
+        if prefix_type == 'wine' and not wine_options.get('prefix'):
+            wine_options['prefix'] = prefix_path
+        compat_data_path = prefix_path if prefix_type == 'proton' else ''
 
         options = {
             'name': name,
             'comment': description or name,
-            'exe_path': exe_path,
-            'working_dir': working_dir,
+            'exe_path': app.get('exe_path', ''),
+            'working_dir': app.get('run_directory', ''),
             'runtime_path': app.get('proton_path', ''),
             'icon_path': icon_path,
             'args': args_text,
@@ -711,18 +899,21 @@ class SavedAppsPage(QWidget):
             'terminal': False,
             'target': 'desktop',
             'filename': sanitize_filename(name) + '.desktop',
+            'app_id': app.get('app_id', ''),
+            'compat_data_path': compat_data_path,
         }
 
         dialog = DesktopEntryDialog(
             options,
             self.translator,
-            runtimes=runtimes,
+            runtimes=self.get_runtimes(),
             icon_extractor=self._icon_extractor,
             parent=self,
         )
         dialog.set_runtime_context(
             env_vars=self.config.get('environment_variables', {}),
-            wine_options=more_options.get('wine_options', {}) or {},
+            wine_options=wine_options,
+            compat_data_path=compat_data_path,
         )
         if not dialog.exec():
             return
@@ -732,7 +923,7 @@ class SavedAppsPage(QWidget):
         success, result = generator.generate_desktop_file(
             **desktop_options,
             env_vars=self.config.get('environment_variables', {}),
-            wine_options=more_options.get('wine_options', {}) or {},
+            wine_options=wine_options,
             translator=self.translator,
         )
 
@@ -740,122 +931,53 @@ class SavedAppsPage(QWidget):
             app['desktop_options'] = desktop_options
             self.config._save_apps()
             self.main_window.log_message(
-                f"{self.translator('desktop_file_generated')}: {result}",
-                'success'
+                '{}: {}'.format(
+                    self.translator('desktop_file_generated'), result
+                ),
+                'success',
             )
             QMessageBox.information(
-                self,
-                self.translator('success'),
-                f"{self.translator('desktop_file_generated')}\n{result}"
+                self, self.translator('success'),
+                '{}\n{}'.format(
+                    self.translator('desktop_file_generated'), result
+                ),
             )
         else:
             self.main_window.log_message(
-                f"{self.translator('desktop_generation_failed')}: {result}", 'error'
+                '{}: {}'.format(
+                    self.translator('desktop_generation_failed'), result
+                ),
+                'error',
             )
             QMessageBox.warning(
-                self,
-                self.translator('error'),
-                f"{self.translator('desktop_generation_failed')}\n{result}"
+                self, self.translator('error'),
+                '{}\n{}'.format(
+                    self.translator('desktop_generation_failed'), result
+                ),
             )
 
-    def edit_app(self, app):
-        """Edit an application configuration"""
-        # Switch to main page and load config
-        self.main_window.show_page(0)
-        main_page = self.main_window.main_page
-
-        main_page.program_name.setText(app.get('name', ''))
-        main_page.program_path.setText(app.get('exe_path', ''))
-        main_page.run_directory.setText(app.get('run_directory', ''))
-
-        # Set runtime in the main page runtime table
-        proton_path = app.get('proton_path', '')
-        if proton_path:
-            main_page.select_runtime_path(proton_path)
-
-        # Set architecture
-        arch = app.get('architecture', 'auto')
-        index = main_page.arch_combo.findData(arch)
-        if index >= 0:
-            main_page.arch_combo.setCurrentIndex(index)
-
-        # Set more options
-        main_page.more_options = app.get('more_options', {})
-
-    def delete_app(self, app):
-        """Delete an application"""
-        reply = QMessageBox.question(
-            self,
-            self.translator('confirm_delete'),
-            self.translator('confirm_delete_msg'),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-
-        if reply == QMessageBox.StandardButton.Yes:
-            self.config.delete_app(app.get('name'))
-            self.load_apps()
-            self.main_window.log_message(f"Deleted: {app.get('name')}", 'info')
-
-    def filter_apps(self, text):
-        """Filter applications by search text"""
-        if not text:
-            self.filtered_apps = self.apps
-        else:
-            text_lower = text.lower()
-            self.filtered_apps = [
-                app for app in self.apps
-                if text_lower in app.get('name', '').lower()
-            ]
-        self.refresh_grid()
-
-    def import_apps(self):
-        """Import applications"""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            self.translator('import'),
-            "",
-            "JSON Files (*.json);;All Files (*)"
-        )
-
-        if file_path:
-            if self.config.import_apps(file_path):
-                self.load_apps()
-                self.main_window.log_message("Applications imported", 'success')
-            else:
-                QMessageBox.warning(
-                    self,
-                    self.translator('error'),
-                    "Failed to import applications"
-                )
-
-    def export_apps(self):
-        """Export applications"""
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            self.translator('export'),
-            "",
-            "JSON Files (*.json);;All Files (*)"
-        )
-
-        if file_path:
-            if self.config.export_apps(file_path):
-                self.main_window.log_message("Applications exported", 'success')
-            else:
-                QMessageBox.warning(
-                    self,
-                    self.translator('error'),
-                    "Failed to export applications"
-                )
-
+    # ------------------------------------------------------------------
+    # Refresh / i18n
+    # ------------------------------------------------------------------
     def refresh(self):
-        """Refresh the page"""
-        # Update header texts
-        self.title.setText(self.translator('saved_apps'))
-        self.search_box.setPlaceholderText(self.translator('search'))
-        self.btn_import.setText(self.translator('import'))
-        self.btn_export.setText(self.translator('export'))
-        self.desc.setText(self.translator('saved_apps_desc'))
-        self.empty_label.setText(self.translator('no_saved_apps'))
+        """Reload data and retranslate the whole page."""
+        self.sidebar.update_texts()
+        self.category_panel.update_texts()
+        self.sidebar_menu.clear()
+        self.sidebar_menu.addAction(
+            self.translator('import'), self.import_apps
+        )
+        self.sidebar_menu.addAction(
+            self.translator('export'), self.export_apps
+        )
 
-        # Reload grid so cards use the new translator
+        # Recreate the views so every static label uses the new language.
+        for index in range(self.stack.count() - 1, -1, -1):
+            widget = self.stack.widget(index)
+            self.stack.removeWidget(widget)
+            widget.deleteLater()
+        self._create_stack_pages()
+        self.category_panel.clear_selection()
+        self._categories = set()
+        self._current_app_name = ''
         self.load_apps()
