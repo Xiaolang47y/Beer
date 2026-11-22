@@ -310,11 +310,11 @@ Beer/
 
 ## 画廊
 
-<img width="900" height="628" alt="图片" src="https://github.com/user-attachments/assets/832c1359-d3eb-4333-b010-8336dfeb881f" />
-<img width="900" height="628" alt="图片" src="https://github.com/user-attachments/assets/cd77bee0-1abc-48dd-a387-abbc418f2fbf" />
-<img width="900" height="628" alt="图片" src="https://github.com/user-attachments/assets/99b38b25-c57e-4d1d-af38-342d8973c45e" />
-<img width="900" height="628" alt="图片" src="https://github.com/user-attachments/assets/efaa61c4-103f-4a00-9478-eed3930c7be6" />
-<img width="900" height="628" alt="图片" src="https://github.com/user-attachments/assets/5d1f7752-0c33-4b13-a52d-aced5c7da95d" />
+<img width="1366" height="727" alt="截图_2026-11-22_17-24-43" src="https://github.com/user-attachments/assets/edb6a5cf-1a54-4ac7-8709-f415b08ef49f" />
+<img width="1366" height="727" alt="截图_2026-11-22_17-21-12" src="https://github.com/user-attachments/assets/9e0cb74a-8cb6-4689-aca3-4552d5cb68b2" />
+<img width="1366" height="727" alt="截图_2026-11-22_17-21-20" src="https://github.com/user-attachments/assets/5f2eea8b-3394-4269-acbf-62fbd4dfa2f1" />
+<img width="1366" height="727" alt="截图_2026-11-22_17-25-29" src="https://github.com/user-attachments/assets/aa1ca0fd-548f-4eb1-9c92-e3d1fc24d69e" />
+<img width="826" height="680" alt="截图_2026-11-22_17-25-08" src="https://github.com/user-attachments/assets/507b8aa8-7335-4fbe-bbf2-59e714e08251" />
 
 ---
 
