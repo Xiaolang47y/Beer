@@ -704,8 +704,23 @@ class MainPage(QWidget):
 
         env_vars = self.config.get('environment_variables', {})
         args = self._startup_args()
-        wine_options = self.more_options.get('wine_options', {}) or {}
+        wine_options = dict(self.more_options.get('wine_options', {}) or {})
         working_dir = self.run_directory.text().strip() or os.path.dirname(exe_path)
+
+        # If this executable is already a saved application, use the same
+        # per-application prefix as its shortcut so both launch paths behave
+        # identically (language, saves and registry settings included).
+        compat_data_path = None
+        saved_app = self.config.find_app_by_exe(exe_path)
+        if saved_app is not None:
+            saved_type, saved_prefix, _legacy = app_prefix_info(
+                self.config, saved_app
+            )
+            if saved_type and saved_type == runtime.get('type'):
+                if saved_type == 'proton':
+                    compat_data_path = saved_prefix
+                elif not wine_options.get('prefix'):
+                    wine_options['prefix'] = saved_prefix
 
         success, result = self.proton_manager.launch_program(
             runtime.get('path', ''),
@@ -716,6 +731,7 @@ class MainPage(QWidget):
             output_callback=self.main_window.log_message,
             wine_options=wine_options,
             architecture=self.arch_combo.currentData(),
+            compat_data_path=compat_data_path,
         )
 
         if success:
